@@ -18,6 +18,8 @@ from app.config import (
     PROCESSED_RAW_DIR,
     CLIPS_DIR,
     READY_DIR,
+    THUMBNAILS_DIR,
+    DAILY_THUMBNAIL_PATH,
     STATIC_DIR,
     TEMPLATES_DIR,
     HTML_TEMPLATES_DIR,
@@ -36,7 +38,9 @@ from app.processor import (
 )
 from app.template_engine import (
     generate_preview_mockup,
-    generate_part_overlay
+    generate_part_overlay,
+    process_daily_thumbnail,
+    generate_part_thumbnail
 )
 from app.scheduler import scheduler_instance
 
@@ -46,6 +50,7 @@ app = FastAPI(title="TMKOC Shorts Automator")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/clips_media", StaticFiles(directory=str(CLIPS_DIR)), name="clips_media")
 app.mount("/ready_media", StaticFiles(directory=str(READY_DIR)), name="ready_media")
+app.mount("/thumbnails_media", StaticFiles(directory=str(THUMBNAILS_DIR)), name="thumbnails_media")
 
 # Start background folder watcher on app startup
 @app.on_event("startup")
@@ -235,6 +240,65 @@ async def clear_scheduler():
     scheduler_instance.clear_queue()
     return {"success": True, "message": "Queue cleared."}
 
+# --- Daily Thumbnail Endpoints (Instagram & YouTube) ---
+@app.post("/api/upload-daily-thumbnail")
+async def upload_daily_thumbnail(file: UploadFile = File(...)):
+    """
+    Uploads today's thumbnail, auto-fits to 1080x1920 (9:16 vertical),
+    and saves as the active daily thumbnail for Instagram & YouTube.
+    """
+    temp_upload = THUMBNAILS_DIR / f"temp_{int(time.time())}_{file.filename}"
+    with open(temp_upload, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    try:
+        final_thumb = process_daily_thumbnail(str(temp_upload), str(DAILY_THUMBNAIL_PATH))
+        if temp_upload.exists():
+            temp_upload.unlink()
+        return {
+            "success": True,
+            "message": "Daily thumbnail updated successfully for Instagram & YouTube!",
+            "thumbnail_url": f"/thumbnails_media/daily_thumbnail.jpg?t={int(time.time() * 1000)}"
+        }
+    except Exception as e:
+        if temp_upload.exists():
+            temp_upload.unlink()
+        raise HTTPException(status_code=500, detail=f"Failed to process thumbnail: {str(e)}")
+
+@app.get("/api/daily-thumbnail")
+async def get_daily_thumbnail():
+    """
+    Returns current active daily thumbnail status.
+    """
+    if DAILY_THUMBNAIL_PATH.exists():
+        return {
+            "has_thumbnail": True,
+            "thumbnail_url": f"/thumbnails_media/daily_thumbnail.jpg?t={int(DAILY_THUMBNAIL_PATH.stat().st_mtime)}",
+            "updated_at": time.strftime("%Y-%m-%d %I:%M %p", time.localtime(DAILY_THUMBNAIL_PATH.stat().st_mtime))
+        }
+    return {"has_thumbnail": False, "thumbnail_url": None}
+
+@app.post("/api/apply-thumbnail-to-all")
+async def apply_thumbnail_to_all_clips():
+    """
+    Applies the active daily thumbnail to all existing clips without needing to re-render videos!
+    """
+    if not DAILY_THUMBNAIL_PATH.exists():
+        raise HTTPException(status_code=400, detail="Pehle daily thumbnail upload karein!")
+
+    count = 0
+    import re
+    for mp4_file in CLIPS_DIR.glob("*.mp4"):
+        if mp4_file.name.startswith(".tmp_"):
+            continue
+        part_match = re.search(r'part(\d+)', mp4_file.name, re.IGNORECASE)
+        part_num = int(part_match.group(1)) if part_match else 1
+        thumb_file = CLIPS_DIR / f"{mp4_file.stem}_thumb.jpg"
+        generate_part_thumbnail(part_num, str(thumb_file), add_part_badge=False)
+        count += 1
+
+    return {"success": True, "message": f"Thumbnail applied to {count} clips successfully!", "count": count}
+
 def natural_clip_sort_key(path: Path):
     import re
     # Extract episode and part number
@@ -261,12 +325,22 @@ async def list_clips():
         ep_no = match.group(1) if match else "1"
         part_no = int(match.group(2)) if match else 1
 
+        # Check if clip-specific thumbnail or daily thumbnail exists
+        clip_thumb = CLIPS_DIR / f"{file.stem}_thumb.jpg"
+        if clip_thumb.exists():
+            thumb_url = f"/clips_media/{clip_thumb.name}?t={int(clip_thumb.stat().st_mtime)}"
+        elif DAILY_THUMBNAIL_PATH.exists():
+            thumb_url = f"/thumbnails_media/daily_thumbnail.jpg?t={int(DAILY_THUMBNAIL_PATH.stat().st_mtime)}"
+        else:
+            thumb_url = None
+
         clips.append({
             "filename": file.name,
             "display_title": f"Episode {ep_no} • Part {part_no}",
             "episode": ep_no,
             "part": part_no,
             "url": f"/clips_media/{file.name}",
+            "thumbnail_url": thumb_url,
             "size_mb": round(file.stat().st_size / (1024 * 1024), 2),
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(file.stat().st_ctime))
         })
@@ -274,10 +348,19 @@ async def list_clips():
 
 @app.get("/api/download-all-zip")
 async def download_all_zip():
+    """
+    Creates and downloads a zip of all rendered clips and their thumbnails.
+    """
     zip_path = STORAGE_DIR / "tmkoc_shorts_pack.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
         for file in CLIPS_DIR.glob("*.mp4"):
-            zipf.write(file, arcname=file.name)
+            if not file.name.startswith(".tmp_"):
+                zipf.write(file, arcname=file.name)
+        # Include thumbnails in zip
+        for thumb in CLIPS_DIR.glob("*_thumb.jpg"):
+            zipf.write(thumb, arcname=f"thumbnails/{thumb.name}")
+        if DAILY_THUMBNAIL_PATH.exists():
+            zipf.write(DAILY_THUMBNAIL_PATH, arcname="thumbnails/daily_thumbnail.jpg")
 
     return FileResponse(
         path=str(zip_path),

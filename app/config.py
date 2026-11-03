@@ -9,15 +9,17 @@ RAW_VIDEOS_DIR = STORAGE_DIR / "raw_videos"
 PROCESSED_RAW_DIR = RAW_VIDEOS_DIR / "processed"
 CLIPS_DIR = STORAGE_DIR / "clips"
 READY_DIR = STORAGE_DIR / "ready_to_publish"
+THUMBNAILS_DIR = STORAGE_DIR / "thumbnails"
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = STATIC_DIR / "templates"
 HTML_TEMPLATES_DIR = BASE_DIR / "templates_html"
 
 # Default template path (User's ===.png template)
 DEFAULT_TEMPLATE_PATH = TEMPLATES_DIR / "tmkoc_official_template.png"
+DAILY_THUMBNAIL_PATH = THUMBNAILS_DIR / "daily_thumbnail.jpg"
 
 # Ensure directories exist
-for directory in [INPUTS_DIR, RAW_VIDEOS_DIR, PROCESSED_RAW_DIR, CLIPS_DIR, READY_DIR, TEMPLATES_DIR, HTML_TEMPLATES_DIR]:
+for directory in [INPUTS_DIR, RAW_VIDEOS_DIR, PROCESSED_RAW_DIR, CLIPS_DIR, READY_DIR, THUMBNAILS_DIR, TEMPLATES_DIR, HTML_TEMPLATES_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
 # Video Defaults

@@ -5,11 +5,11 @@ import time
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from app.config import READY_DIR
+from app.config import READY_DIR, DAILY_THUMBNAIL_PATH
 
 def publish_to_local_folder(clip_path: str, episode_num: str, part_num: int) -> Dict[str, Any]:
     """
-    Publishes clip to the local 'ready_to_publish' folder with ready-to-copy social media title, tags, and description.
+    Publishes clip and attached daily thumbnail to 'ready_to_publish' folder with viral social tags.
     """
     src = Path(clip_path)
     if not src.exists():
@@ -17,6 +17,13 @@ def publish_to_local_folder(clip_path: str, episode_num: str, part_num: int) -> 
 
     dest_video = READY_DIR / src.name
     shutil.copy2(src, dest_video)
+
+    # Attach Daily Thumbnail for Instagram & YouTube if available
+    dest_thumb_str = None
+    if DAILY_THUMBNAIL_PATH.exists():
+        dest_thumb = READY_DIR / f"{src.stem}_thumb.jpg"
+        shutil.copy2(DAILY_THUMBNAIL_PATH, dest_thumb)
+        dest_thumb_str = str(dest_thumb)
 
     # Generate metadata with viral tags for TMKOC
     title = f"TMKOC Episode {episode_num} | Part {part_num} 😂 #tmkoc #shorts #comedy"
@@ -33,6 +40,8 @@ def publish_to_local_folder(clip_path: str, episode_num: str, part_num: int) -> 
             "episode": episode_num,
             "part": part_num,
             "video_file": str(dest_video),
+            "thumbnail_file": dest_thumb_str,
+            "platforms": ["YouTube Shorts", "Instagram Reels"],
             "title": title,
             "description": description,
             "tags": tags,
@@ -42,6 +51,7 @@ def publish_to_local_folder(clip_path: str, episode_num: str, part_num: int) -> 
     return {
         "success": True,
         "destination": str(dest_video),
+        "thumbnail": dest_thumb_str,
         "title": title,
         "description": description
     }

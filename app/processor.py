@@ -15,6 +15,8 @@ from app.config import (
     INPUTS_DIR,
     RAW_VIDEOS_DIR,
     PROCESSED_RAW_DIR,
+    THUMBNAILS_DIR,
+    DAILY_THUMBNAIL_PATH,
     TARGET_WIDTH,
     TARGET_HEIGHT,
     VIDEO_WINDOW_Y_START,
@@ -22,7 +24,7 @@ from app.config import (
     DEFAULT_CLIP_DURATION,
     DEFAULT_INTERVAL_MINUTES
 )
-from app.template_engine import generate_part_overlay
+from app.template_engine import generate_part_overlay, generate_part_thumbnail
 
 # Global registry
 JOBS: Dict[str, Dict[str, Any]] = {}
@@ -196,10 +198,24 @@ def _render_part_task(task_data: dict) -> Optional[dict]:
             print(f"[Rename error] {e}")
 
         if final_file.exists():
+            thumb_name = f"{final_file.stem}_thumb.jpg"
+            thumb_path = CLIPS_DIR / thumb_name
+            thumb_url = None
+
+            # Attach Daily Thumbnail for Instagram & YouTube if present
+            if DAILY_THUMBNAIL_PATH.exists():
+                try:
+                    generate_part_thumbnail(part_num, str(thumb_path), add_part_badge=False)
+                    if thumb_path.exists():
+                        thumb_url = f"/clips_media/{thumb_name}"
+                except Exception as te:
+                    print(f"[Thumbnail Error] {te}")
+
             return {
                 "part": part_num,
                 "filename": clip_name,
                 "path": str(final_file),
+                "thumbnail_url": thumb_url,
                 "duration": round(duration, 1),
                 "size_mb": round(final_file.stat().st_size / (1024 * 1024), 2)
             }

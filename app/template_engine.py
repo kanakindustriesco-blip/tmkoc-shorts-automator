@@ -107,3 +107,57 @@ def generate_preview_mockup(episode_num: str, part_num: int, custom_template_pat
 
     canvas.save(output_path, "JPEG", quality=92)
     return output_path
+
+def process_daily_thumbnail(input_image_path: str, output_path: str = None) -> str:
+    """
+    Takes user's uploaded daily thumbnail image, fits it to 1080x1920 (9:16 vertical),
+    and saves as high-res JPEG for Instagram Reels & YouTube Shorts.
+    """
+    if not output_path:
+        from app.config import DAILY_THUMBNAIL_PATH
+        output_path = str(DAILY_THUMBNAIL_PATH)
+
+    im = Image.open(input_image_path).convert("RGB")
+    
+    # Calculate aspect ratio crop to 9:16
+    target_ratio = TARGET_WIDTH / TARGET_HEIGHT  # 1080 / 1920 = 0.5625
+    im_ratio = im.width / im.height
+
+    if im_ratio > target_ratio:
+        # Image is wider: crop sides
+        new_width = int(im.height * target_ratio)
+        left = (im.width - new_width) // 2
+        im = im.crop((left, 0, left + new_width, im.height))
+    elif im_ratio < target_ratio:
+        # Image is taller: crop top/bottom
+        new_height = int(im.width / target_ratio)
+        top = (im.height - new_height) // 2
+        im = im.crop((0, top, im.width, top + new_height))
+
+    im = im.resize((TARGET_WIDTH, TARGET_HEIGHT), Image.Resampling.LANCZOS)
+    im.save(output_path, "JPEG", quality=95)
+    return output_path
+
+def generate_part_thumbnail(part_num: int, output_path: str, add_part_badge: bool = True) -> str:
+    """
+    Creates thumbnail for specific part using the active daily thumbnail,
+    optionally adding a clean Part number badge.
+    """
+    from app.config import DAILY_THUMBNAIL_PATH
+    if not DAILY_THUMBNAIL_PATH.exists():
+        return None
+
+    im = Image.open(DAILY_THUMBNAIL_PATH).convert("RGBA")
+
+    if add_part_badge:
+        draw = ImageDraw.Draw(im)
+        badge_w, badge_h = 420, 80
+        bx = (TARGET_WIDTH - badge_w) // 2
+        by = TARGET_HEIGHT - 220
+        draw.rounded_rectangle([bx, by, bx + badge_w, by + badge_h], radius=20, fill=(250, 204, 21, 235), outline=(0, 0, 0), width=4)
+        part_font = get_font(52, bold=True)
+        draw.text((TARGET_WIDTH // 2 - 110, by + 12), f"👉 PART {part_num} 👈", font=part_font, fill=(180, 0, 0))
+
+    im_rgb = im.convert("RGB")
+    im_rgb.save(output_path, "JPEG", quality=95)
+    return output_path

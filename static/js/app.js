@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   setupDragAndDrop();
   updateLivePreview();
+  fetchDailyThumbnail();
   fetchClipsList();
   fetchSchedulerStatus();
   schedulerTimer = setInterval(fetchSchedulerStatus, 4000);
@@ -50,6 +51,72 @@ function setupDragAndDrop() {
 function preventDefaults(e) {
   e.preventDefault();
   e.stopPropagation();
+}
+
+// --- Daily Thumbnail Manager Functions ---
+async function fetchDailyThumbnail() {
+  try {
+    const res = await fetch("/api/daily-thumbnail");
+    const data = await res.json();
+    const previewImg = document.getElementById("daily-thumb-preview");
+    const placeholder = document.getElementById("daily-thumb-placeholder");
+    const statusText = document.getElementById("daily-thumb-status");
+
+    if (data.has_thumbnail && data.thumbnail_url) {
+      previewImg.src = data.thumbnail_url;
+      previewImg.classList.remove("hidden");
+      placeholder.classList.add("hidden");
+      statusText.innerHTML = `<span class="text-emerald-400 font-bold">✓ Active</span> (${data.updated_at})`;
+    } else {
+      previewImg.classList.add("hidden");
+      placeholder.classList.remove("hidden");
+      statusText.textContent = "No thumbnail set for today";
+    }
+  } catch (e) {
+    console.error("Fetch thumbnail failed:", e);
+  }
+}
+
+async function handleDailyThumbnailUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const statusText = document.getElementById("daily-thumb-status");
+  statusText.textContent = "Uploading & formatting to 9:16...";
+
+  try {
+    const res = await fetch("/api/upload-daily-thumbnail", {
+      method: "POST",
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Thumbnail upload failed");
+
+    fetchDailyThumbnail();
+    fetchClipsList();
+    alert("Daily Thumbnail uploaded successfully! Instagram & YouTube ke sabhi clips me apply ho gaya.");
+  } catch (err) {
+    alert(err.message);
+    fetchDailyThumbnail();
+  }
+}
+
+async function applyThumbnailToAll() {
+  const statusText = document.getElementById("daily-thumb-status");
+  statusText.textContent = "Applying to all clips...";
+  try {
+    const res = await fetch("/api/apply-thumbnail-to-all", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Failed to apply");
+    alert(data.message);
+    fetchDailyThumbnail();
+    fetchClipsList();
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 // Open Raw Videos Folder in File Explorer
@@ -341,26 +408,34 @@ async function fetchClipsList() {
     grid.innerHTML = clips.map(clip => `
       <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-amber-500/40 transition group shadow-lg">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-extrabold text-amber-400 truncate max-w-[160px]">${clip.display_title || clip.filename}</span>
+          <span class="text-xs font-extrabold text-amber-400 truncate max-w-[150px]">${clip.display_title || clip.filename}</span>
           <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 font-mono">${clip.size_mb} MB</span>
         </div>
         <div class="aspect-[9/16] bg-slate-900 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer mb-2.5" onclick="openVideoModal('${clip.url}', '${clip.display_title || clip.filename}')">
-          <video src="${clip.url}" preload="metadata" class="w-full h-full object-cover"></video>
-          <div class="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center transition">
+          <video src="${clip.url}" ${clip.thumbnail_url ? `poster="${clip.thumbnail_url}"` : ''} preload="metadata" class="w-full h-full object-cover"></video>
+          <div class="absolute inset-0 bg-black/35 group-hover:bg-black/15 flex items-center justify-center transition">
             <div class="w-10 h-10 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg group-hover:scale-110 transition">
               <i data-lucide="play" class="w-4 h-4 fill-current"></i>
             </div>
           </div>
-          <div class="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 backdrop-blur text-[10px] text-amber-300 font-extrabold">
+          <div class="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/75 backdrop-blur text-[10px] text-amber-300 font-extrabold">
             PART ${clip.part || 1}
           </div>
+          ${clip.thumbnail_url ? `
+          <div class="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-pink-600/80 backdrop-blur text-[9px] text-white font-bold flex items-center gap-1">
+            <span>📸 Reel Cover</span>
+          </div>` : ''}
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-1.5">
           <button onclick="openVideoModal('${clip.url}', '${clip.display_title || clip.filename}')" class="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold transition text-center flex items-center justify-center gap-1">
             <i data-lucide="play" class="w-3 h-3 text-amber-400"></i>
-            Play Clip
+            Play
           </button>
-          <a href="${clip.url}" download="${clip.filename}" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold transition flex items-center justify-center" title="Download Short">
+          ${clip.thumbnail_url ? `
+          <a href="${clip.thumbnail_url}" download="${clip.filename.replace('.mp4', '_thumb.jpg')}" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-pink-400 border border-pink-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center" title="Download Thumbnail for Instagram / YouTube">
+            <i data-lucide="image" class="w-3 h-3"></i>
+          </a>` : ''}
+          <a href="${clip.url}" download="${clip.filename}" class="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold transition flex items-center justify-center" title="Download Short">
             <i data-lucide="download" class="w-3 h-3"></i>
           </a>
         </div>

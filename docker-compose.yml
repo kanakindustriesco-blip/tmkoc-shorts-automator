@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  tmkoc-automator:
+    build: .
+    container_name: tmkoc_shorts_automator
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storage:/app/storage

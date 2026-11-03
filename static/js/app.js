@@ -218,7 +218,7 @@ async function startGeneration() {
   }
 }
 
-// Poll Job Status
+// Poll Job Status with high-frequency updates (600ms)
 function pollJobStatus(jobId) {
   clearInterval(pollTimer);
   const startEpoch = Date.now();
@@ -229,20 +229,25 @@ function pollJobStatus(jobId) {
       const job = await res.json();
 
       const pct = job.progress || 0;
-      document.getElementById("progress-pct").textContent = `${Math.round(pct)}%`;
+      document.getElementById("progress-pct").textContent = `${Math.round(pct)}% (TURBO)`;
       document.getElementById("progress-bar-fill").style.width = `${pct}%`;
 
-      if (job.current_part && job.total_parts) {
-        document.getElementById("progress-part-status").textContent = `Rendering Part ${job.current_part} of ${job.total_parts}`;
+      if (job.total_parts) {
+        document.getElementById("progress-part-status").textContent = `⚡ Parallel Multi-Core Rendering: ${job.clips ? job.clips.length : 0} of ${job.total_parts} finished`;
       }
 
       const elapsedSec = Math.round((Date.now() - startEpoch) / 1000);
       document.getElementById("progress-elapsed").textContent = `Elapsed: ${elapsedSec}s`;
 
+      // Live update gallery as clips finish
+      if (job.clips && job.clips.length > 0) {
+        fetchClipsList();
+      }
+
       if (job.status === "completed") {
         clearInterval(pollTimer);
-        document.getElementById("progress-pct").textContent = "100% Completed!";
-        document.getElementById("progress-part-status").textContent = `Done! All ${job.clips.length} clips generated & scheduled.`;
+        document.getElementById("progress-pct").textContent = `100% Done in ${job.elapsed_sec || elapsedSec}s!`;
+        document.getElementById("progress-part-status").textContent = `⚡ All ${job.clips.length} clips generated at turbo speed!`;
 
         const btn = document.getElementById("btn-start-process");
         btn.disabled = false;
@@ -260,7 +265,7 @@ function pollJobStatus(jobId) {
     } catch (e) {
       console.error("Poll error:", e);
     }
-  }, 1000);
+  }, 600);
 }
 
 // Fetch 5-Minute Scheduler Status

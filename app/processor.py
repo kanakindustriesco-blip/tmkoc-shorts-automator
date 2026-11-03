@@ -8,6 +8,7 @@ import time
 import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.config import (
     CLIPS_DIR,
@@ -23,14 +24,14 @@ from app.config import (
 )
 from app.template_engine import generate_part_overlay
 
-# Global jobs registry
+# Global registry
 JOBS: Dict[str, Dict[str, Any]] = {}
 WATCHER_ENABLED = True
 
+# Number of parallel video rendering threads (uses 3-4 workers for 8 CPU cores)
+MAX_PARALLEL_WORKERS = 3
+
 def get_video_info(video_path: str) -> Dict[str, Any]:
-    """
-    Extracts duration, dimensions, fps, audio presence using ffprobe.
-    """
     cmd = [
         "ffprobe",
         "-v", "quiet",
@@ -62,15 +63,10 @@ def get_video_info(video_path: str) -> Dict[str, Any]:
         return {"duration": 0, "width": 1920, "height": 1080, "has_audio": True}
 
 def extract_sample_frame(video_path: str, timestamp: float = 15.0, output_path: str = None) -> str:
-    """
-    Extracts a frame from video for preview.
-    """
     if not output_path:
         output_path = str(Path(video_path).parent / "sample_frame.jpg")
-    
     cmd = [
-        "ffmpeg",
-        "-y",
+        "ffmpeg", "-y",
         "-ss", str(timestamp),
         "-i", video_path,
         "-vframes", "1",
@@ -86,21 +82,19 @@ def extract_sample_frame(video_path: str, timestamp: float = 15.0, output_path: 
 
 def build_ffmpeg_filter(use_blurred_bg: bool = True) -> str:
     """
-    Lightning-fast filter complex:
-    Centers 16:9 video between y=623 and 1241 in the template,
-    with an optimized downscaled blurred background underneath.
+    Turbo-charged filter complex:
+    Ultra-light background blur (90x160 bilinear) or black padding,
+    video centered between y=623 and 1241.
     """
     if use_blurred_bg:
-        # Fast blur by downscaling background to 180x320, light boxblur, then upscaling
         filter_str = (
             f"[0:v]split=2[v_bg][v_fg];"
-            f"[v_bg]scale=180:320:force_original_aspect_ratio=increase,crop=180:320,boxblur=5:2,scale={TARGET_WIDTH}:{TARGET_HEIGHT}[blurred];"
+            f"[v_bg]scale=90:160:force_original_aspect_ratio=increase,crop=90:160,boxblur=3:1,scale={TARGET_WIDTH}:{TARGET_HEIGHT}:flags=bilinear[blurred];"
             f"[v_fg]scale={TARGET_WIDTH}:{VIDEO_WINDOW_HEIGHT}:force_original_aspect_ratio=decrease[fg];"
             f"[blurred][fg]overlay=(W-w)/2:{VIDEO_WINDOW_Y_START}[composed];"
             f"[composed][1:v]overlay=0:0[outv]"
         )
     else:
-        # Black background fill
         filter_str = (
             f"[0:v]scale={TARGET_WIDTH}:{VIDEO_WINDOW_HEIGHT}:force_original_aspect_ratio=decrease,"
             f"pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:{VIDEO_WINDOW_Y_START}:color=black[padded];"
@@ -117,7 +111,7 @@ def render_single_clip(
     use_blurred_bg: bool = True
 ) -> bool:
     """
-    Renders one 30-second vertical clip with official TMKOC overlay.
+    Turbo render with ultrafast x264 preset and multi-threading.
     """
     filter_complex = build_ffmpeg_filter(use_blurred_bg=use_blurred_bg)
 
@@ -134,27 +128,25 @@ def render_single_clip(
         "-map", "[outv]",
         "-map", "0:a?",
         "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "22",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-tune", "fastdecode",
         "-c:a", "aac",
-        "-b:a", "192k",
-        "-ar", "44100",
+        "-b:a", "128k",
+        "-threads", "0",
         "-shortest",
         "-movflags", "+faststart",
         output_path
     ]
 
     try:
-        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"[FFmpeg render error] {e.stderr}")
+        print(f"[FFmpeg error] {e.stderr}")
         return False
 
 def parse_episode_number(filename: str) -> str:
-    """
-    Extracts episode number from strings like 'TMKOC_Ep542.mp4', 'ep-1200', 'Episode 400'.
-    """
     match = re.search(r'(?:ep|episode)[^\d]*(\d+)', filename, re.IGNORECASE)
     if match:
         return match.group(1)
@@ -162,6 +154,46 @@ def parse_episode_number(filename: str) -> str:
     if digits:
         return digits[0]
     return "1"
+
+def _render_part_task(task_data: dict) -> Optional[dict]:
+    """
+    Worker task executed in parallel thread pool.
+    """
+    video_path = task_data["video_path"]
+    overlay_path = task_data["overlay_path"]
+    start_time = task_data["start_time"]
+    duration = task_data["duration"]
+    output_path = task_data["output_path"]
+    clip_name = task_data["clip_name"]
+    part_num = task_data["part_num"]
+    use_blurred_bg = task_data["use_blurred_bg"]
+
+    success = render_single_clip(
+        video_path=video_path,
+        overlay_path=overlay_path,
+        start_time=start_time,
+        duration=duration,
+        output_path=output_path,
+        use_blurred_bg=use_blurred_bg
+    )
+
+    # Cleanup temporary overlay
+    if os.path.exists(overlay_path):
+        try:
+            os.remove(overlay_path)
+        except Exception:
+            pass
+
+    out_file = Path(output_path)
+    if success and out_file.exists():
+        return {
+            "part": part_num,
+            "filename": clip_name,
+            "path": output_path,
+            "duration": round(duration, 1),
+            "size_mb": round(out_file.stat().st_size / (1024 * 1024), 2)
+        }
+    return None
 
 def process_episode_into_shorts(
     job_id: str,
@@ -175,7 +207,7 @@ def process_episode_into_shorts(
     auto_schedule: bool = True
 ):
     """
-    Background worker that slices episode and renders 30s clips with official TMKOC template.
+    Parallel multi-threaded worker that slices episode into 30s clips at blazing speed.
     """
     job = JOBS[job_id]
     job["status"] = "processing"
@@ -201,11 +233,8 @@ def process_episode_into_shorts(
         temp_dir = INPUTS_DIR / f"temp_{job_id}"
         temp_dir.mkdir(parents=True, exist_ok=True)
 
+        tasks = []
         for idx in range(parts_to_generate):
-            if job.get("cancel_requested"):
-                job["status"] = "cancelled"
-                return
-
             current_part_num = start_part + idx
             start_time_offset = idx * clip_duration
             actual_duration = min(clip_duration, total_duration - start_time_offset)
@@ -213,11 +242,7 @@ def process_episode_into_shorts(
             if actual_duration <= 2.0:
                 continue
 
-            job["current_part"] = current_part_num
-            job["current_index"] = idx + 1
-            job["progress"] = round(((idx) / parts_to_generate) * 100, 1)
-
-            # Generate overlay for this part with Episode & Part in pill boxes
+            # Generate overlay from RAM cache
             overlay_img = generate_part_overlay(
                 episode_num=episode_num,
                 part_num=current_part_num,
@@ -226,34 +251,38 @@ def process_episode_into_shorts(
             overlay_file = temp_dir / f"overlay_part_{current_part_num}.png"
             overlay_img.save(str(overlay_file), "PNG")
 
-            # Output filename
             clip_name = f"tmkoc_ep{episode_num}_part{current_part_num}.mp4"
             output_file = CLIPS_DIR / clip_name
 
-            # Render clip
-            success = render_single_clip(
-                video_path=video_path,
-                overlay_path=str(overlay_file),
-                start_time=start_time_offset,
-                duration=actual_duration,
-                output_path=str(output_file),
-                use_blurred_bg=use_blurred_bg
-            )
+            tasks.append({
+                "video_path": video_path,
+                "overlay_path": str(overlay_file),
+                "start_time": start_time_offset,
+                "duration": actual_duration,
+                "output_path": str(output_file),
+                "clip_name": clip_name,
+                "part_num": current_part_num,
+                "use_blurred_bg": use_blurred_bg
+            })
 
-            if overlay_file.exists():
-                try:
-                    overlay_file.unlink()
-                except Exception:
-                    pass
+        # Execute tasks in parallel across CPU cores
+        completed_count = 0
+        with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
+            futures = [executor.submit(_render_part_task, t) for t in tasks]
+            for future in as_completed(futures):
+                if job.get("cancel_requested"):
+                    job["status"] = "cancelled"
+                    return
 
-            if success and output_file.exists():
-                job["clips"].append({
-                    "part": current_part_num,
-                    "filename": clip_name,
-                    "path": str(output_file),
-                    "duration": round(actual_duration, 1),
-                    "size_mb": round(output_file.stat().st_size / (1024 * 1024), 2)
-                })
+                res = future.result()
+                if res:
+                    job["clips"].append(res)
+                    # Keep sorted by part
+                    job["clips"].sort(key=lambda x: x["part"])
+
+                completed_count += 1
+                job["current_part"] = res["part"] if res else completed_count
+                job["progress"] = round((completed_count / len(tasks)) * 100, 1)
 
         try:
             temp_dir.rmdir()
@@ -265,7 +294,9 @@ def process_episode_into_shorts(
         job["end_time"] = time.time()
         job["elapsed_sec"] = round(job["end_time"] - job["start_time"], 1)
 
-        # Auto-schedule if requested
+        print(f"[TURBO RENDER] Finished {len(job['clips'])} parts in {job['elapsed_sec']}s!")
+
+        # Auto-schedule in 5-minute queue
         if auto_schedule and job["clips"]:
             from app.scheduler import scheduler_instance
             scheduler_instance.schedule_clips(
@@ -289,9 +320,6 @@ def start_processing_job(
     use_blurred_bg: bool = True,
     auto_schedule: bool = True
 ) -> str:
-    """
-    Spawns background slicing and conversion thread.
-    """
     job_id = f"job_{int(time.time())}_{episode_num}"
     JOBS[job_id] = {
         "job_id": job_id,
@@ -324,12 +352,8 @@ def start_processing_job(
     thread.start()
     return job_id
 
-# --- Automatic Watch Folder Background Loop ---
+# --- High-Frequency Watch Folder Worker ---
 def watch_folder_worker():
-    """
-    Monitors storage/raw_videos.
-    When a raw episode file is dropped, automatically processes it!
-    """
     processed_files = set()
     while WATCHER_ENABLED:
         try:
@@ -340,20 +364,19 @@ def watch_folder_worker():
                     if file_path in processed_files:
                         continue
 
-                    # Check if file writing is complete (size stable for 1.5s)
+                    # Instant size stability check (0.6s)
                     size1 = file_path.stat().st_size
-                    time.sleep(1.5)
+                    time.sleep(0.6)
                     size2 = file_path.stat().st_size
                     if size1 != size2 or size1 < 100000:
                         continue
 
-                    print(f"[Watch Folder] New episode detected: {file_path.name}")
+                    print(f"[Watch Folder] Instant trigger: {file_path.name}")
                     processed_files.add(file_path)
 
                     ep_num = parse_episode_number(file_path.name)
-                    print(f"[Watch Folder] Auto-processing Episode #{ep_num}...")
+                    print(f"[Watch Folder] Blazing fast render started for Episode #{ep_num}...")
 
-                    # Start job
                     start_processing_job(
                         video_path=str(file_path),
                         episode_num=ep_num,
@@ -363,7 +386,6 @@ def watch_folder_worker():
                         auto_schedule=True
                     )
 
-                    # Move file to processed directory
                     dest = PROCESSED_RAW_DIR / file_path.name
                     try:
                         shutil.move(str(file_path), str(dest))
@@ -373,9 +395,9 @@ def watch_folder_worker():
         except Exception as e:
             print(f"[Watcher Error] {e}")
 
-        time.sleep(3)
+        time.sleep(0.8)
 
 def start_folder_watcher():
     watcher_thread = threading.Thread(target=watch_folder_worker, daemon=True)
     watcher_thread.start()
-    print("[Watch Folder] Background folder watcher started.")
+    print("[Watch Folder] High-frequency watcher active (0.8s check).")

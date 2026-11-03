@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="hi" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TMKOC Shorts Automator (16:9 to 9:16) & 5-Min Scheduler</title>
+  <!-- Tailwind CSS & Lucide Icons -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              yellow: '#FACC15',
+              orange: '#F97316',
+              red: '#EF4444',
+              blue: '#0284C7',
+              dark: '#0F172A',
+              card: '#1E293B',
+              border: '#334155'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 15px rgba(250, 204, 21, 0.25); }
+      50% { box-shadow: 0 0 30px rgba(250, 204, 21, 0.55); }
+    }
+    .glow-accent { animation: pulse-glow 3s infinite; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0F172A; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #FACC15; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased flex flex-col">
+
+  <!-- Top Navigation Header -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-50 px-6 py-3.5 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-400 via-orange-500 to-red-500 flex items-center justify-center font-black text-xl text-black shadow-lg">
+        👓
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-extrabold text-lg tracking-tight bg-gradient-to-r from-amber-400 via-orange-400 to-red-400 bg-clip-text text-transparent">
+            TMKOC Shorts Automator
+          </h1>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+            === Template Active
+          </span>
+        </div>
+        <p class="text-xs text-slate-400 font-medium">16:9 to 9:16 Vertical Converter • 30s Auto-Slicer • 5-Minute Auto-Publisher</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <button onclick="openRawFolder()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 transition">
+        <i data-lucide="folder-open" class="w-3.5 h-3.5"></i>
+        Open Raw Folder
+      </button>
+      <a href="/api/download-all-zip" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black transition shadow-md">
+        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+        Export All (ZIP)
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Grid Layout -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- LEFT COLUMN: Workflow Controls (7 Cols) -->
+    <div class="lg:col-span-7 space-y-6">
+
+      <!-- MASTER DROP / AUTO-PROCESS ZONE -->
+      <div class="bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-amber-500/40 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <span class="w-7 h-7 rounded-full bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center">⚡</span>
+            <div>
+              <h2 class="font-extrabold text-base text-slate-100">Drop Raw TMKOC Video Here</h2>
+              <p class="text-xs text-slate-400">Yahan video upload karein aur pura process (30s clips + template + 5-min schedule) automatic ho jayega!</p>
+            </div>
+          </div>
+          <button onclick="openRawFolder()" title="Open folder in File Explorer" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-[11px] font-semibold text-slate-300 border border-slate-700 flex items-center gap-1">
+            <i data-lucide="folder" class="w-3 h-3 text-amber-400"></i>
+            Explorer
+          </button>
+        </div>
+
+        <!-- Big Drop Area -->
+        <label id="raw-drop-zone" class="border-2 border-dashed border-amber-500/40 hover:border-amber-400 rounded-2xl p-6 flex flex-col items-center justify-center cursor-pointer transition bg-amber-500/5 hover:bg-amber-500/10 group">
+          <input id="raw-video-file-input" type="file" accept="video/*" class="hidden" onchange="handleRawUpload(event)" />
+          <div class="w-14 h-14 rounded-2xl bg-amber-500/20 flex items-center justify-center text-amber-400 group-hover:scale-110 transition mb-3">
+            <i data-lucide="upload-cloud" class="w-7 h-7"></i>
+          </div>
+          <span class="text-sm font-extrabold text-slate-200">Click to Select or Drag & Drop Raw TMKOC Episode</span>
+          <span class="text-xs text-slate-400 mt-1">Automatic Episode Number Detection &bull; Instant 1-Click Processing</span>
+          <span class="text-[10px] text-amber-400 font-mono mt-2 bg-slate-950/80 px-2.5 py-1 rounded-full border border-slate-800">
+            Auto-Watch Folder: storage/raw_videos
+          </span>
+        </label>
+
+        <!-- Or Local Path Quick Input -->
+        <div class="mt-4 pt-3 border-t border-slate-800/80">
+          <p class="text-xs font-semibold text-slate-400 mb-2">Ya direct PC se file path enter karein (Instant loading for 1-2 GB files):</p>
+          <div class="flex gap-2">
+            <input id="local-file-input" type="text" placeholder="e.g. C:\Users\SJC\Downloads\TMKOC_Episode_542.mp4" 
+              class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-amber-400" />
+            <button onclick="handleSelectLocalFile()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-extrabold rounded-xl text-xs transition">
+              Load & Process
+            </button>
+          </div>
+        </div>
+
+        <!-- Detected Video Specs Card -->
+        <div id="video-info-box" class="hidden mt-4 p-3.5 bg-slate-950 border border-amber-500/30 rounded-xl flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400 font-extrabold text-xs">
+              16:9
+            </div>
+            <div>
+              <p id="video-info-name" class="text-xs font-bold text-slate-200 truncate max-w-xs">tmkoc_ep542.mp4</p>
+              <p id="video-info-stats" class="text-[11px] text-slate-400">Duration: 21:40 • Resolution: 1920x1080</p>
+            </div>
+          </div>
+          <div class="text-right">
+            <span id="video-info-parts" class="px-2.5 py-1 bg-amber-500 text-black font-black text-xs rounded-lg shadow">
+              ~43 Clips (30s)
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings & Template Pill Customization -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded-full bg-slate-800 text-amber-400 font-black text-xs flex items-center justify-center">⚙️</span>
+            <h2 class="font-bold text-base text-slate-200">Episode & Slicing Settings</h2>
+          </div>
+          <span class="text-xs text-emerald-400 font-semibold flex items-center gap-1">
+            <i data-lucide="check" class="w-3.5 h-3.5"></i>
+            === Template Linked
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Episode Number -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Episode Number (Pill Box 1)</label>
+            <div class="relative">
+              <span class="absolute left-3 top-2.5 text-xs text-amber-400 font-bold">EP #</span>
+              <input id="input-episode-num" type="text" value="542" oninput="updateLivePreview()" 
+                class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-14 pr-3.5 py-2 text-sm text-slate-100 font-extrabold focus:outline-none focus:border-amber-400" />
+            </div>
+          </div>
+
+          <!-- Starting Part Number -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Starting Part (Pill Box 2)</label>
+            <div class="relative">
+              <span class="absolute left-3 top-2.5 text-xs text-amber-400 font-bold">PART</span>
+              <input id="input-start-part" type="number" value="1" min="1" oninput="updateLivePreview()" 
+                class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-14 pr-3.5 py-2 text-sm text-slate-100 font-extrabold focus:outline-none focus:border-amber-400" />
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1">Clip Duration</label>
+            <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-slate-200">
+              <input id="input-clip-duration" type="number" value="30" min="10" max="60" class="w-12 bg-transparent focus:outline-none text-amber-400" />
+              <span>sec</span>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1">Schedule Interval</label>
+            <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-slate-200">
+              <input id="input-sched-interval" type="number" value="5" min="1" max="60" class="w-12 bg-transparent focus:outline-none text-amber-400" />
+              <span>min</span>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1">Max Parts (Optional)</label>
+            <input id="input-max-parts" type="number" placeholder="All Parts" min="1" 
+              class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-400" />
+          </div>
+        </div>
+
+        <!-- Manual Start Button (if loaded via path) -->
+        <button id="btn-start-process" onclick="startGeneration()" 
+          class="w-full py-3.5 px-6 rounded-xl font-extrabold text-sm bg-gradient-to-r from-amber-400 via-orange-500 to-red-500 hover:from-amber-300 hover:to-red-400 text-black shadow-lg shadow-orange-500/20 transition transform active:scale-[0.99] flex items-center justify-center gap-2">
+          <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+          Start Converting Episode to 9:16 Shorts
+        </button>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN: Live 9:16 Mockup & 5-Min Scheduler (5 Cols) -->
+    <div class="lg:col-span-5 space-y-6">
+
+      <!-- Live 9:16 Mockup Preview Card -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col items-center">
+        <div class="w-full flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="smartphone" class="w-4 h-4 text-amber-400"></i>
+            <h3 class="font-bold text-xs uppercase tracking-wider text-slate-300">Live 9:16 Preview (Official Template)</h3>
+          </div>
+          <button onclick="updateLivePreview()" class="text-xs text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1">
+            <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            Refresh
+          </button>
+        </div>
+
+        <!-- Smartphone Frame -->
+        <div class="relative w-[240px] h-[426px] bg-black rounded-[36px] p-2.5 shadow-2xl border-4 border-slate-700/80 glow-accent overflow-hidden flex flex-col justify-between">
+          <div class="absolute top-3 left-1/2 -translate-x-1/2 w-16 h-3 bg-slate-800 rounded-full z-20"></div>
+
+          <!-- Preview Screen -->
+          <div class="relative w-full h-full rounded-[26px] overflow-hidden bg-slate-950 flex items-center justify-center">
+            <img id="live-preview-img" src="/static/preview_cache.jpg" alt="9:16 Official Preview" class="w-full h-full object-cover select-none" />
+          </div>
+        </div>
+
+        <p class="text-[11px] text-slate-400 mt-3 text-center">
+          1080x1920 (9:16) &bull; Episode in Left Pill &bull; Part in Right Pill &bull; 16:9 Video Centered
+        </p>
+      </div>
+
+      <!-- Real-Time Progress Box -->
+      <div id="progress-box" class="hidden bg-slate-900/90 border border-amber-500/30 rounded-2xl p-5 shadow-xl space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+            <i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i>
+            Rendering Clips...
+          </span>
+          <span id="progress-pct" class="text-xs font-extrabold text-white">0%</span>
+        </div>
+
+        <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+          <div id="progress-bar-fill" class="h-full bg-gradient-to-r from-amber-400 to-red-500 transition-all duration-300 w-0"></div>
+        </div>
+
+        <div class="flex justify-between text-[11px] text-slate-400">
+          <span id="progress-part-status">Part 1 of --</span>
+          <span id="progress-elapsed">Elapsed: 0s</span>
+        </div>
+      </div>
+
+      <!-- 5-Minute Auto-Release Scheduler Dashboard -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <i data-lucide="clock" class="w-4 h-4 text-amber-400"></i>
+            <h3 class="font-bold text-sm text-slate-200">5-Minute Auto-Release Queue</h3>
+          </div>
+          <button onclick="fetchSchedulerStatus()" class="text-xs text-slate-400 hover:text-amber-400">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <div id="scheduler-summary" class="grid grid-cols-2 gap-2 text-center text-xs">
+          <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800">
+            <p class="text-slate-400 text-[10px]">SCHEDULED (5-MIN INTERVAL)</p>
+            <p id="sched-pending-count" class="text-amber-400 font-extrabold text-lg">0</p>
+          </div>
+          <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800">
+            <p class="text-slate-400 text-[10px]">PUBLISHED / READY</p>
+            <p id="sched-published-count" class="text-emerald-400 font-extrabold text-lg">0</p>
+          </div>
+        </div>
+
+        <!-- Schedule Items List -->
+        <div id="scheduler-queue-list" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+          <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80 text-center text-xs text-slate-500">
+            Drop an episode above to start the 5-minute interval release queue.
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- BOTTOM ROW: Generated Clips Gallery (12 Cols) -->
+    <div class="lg:col-span-12 bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="film" class="w-4 h-4 text-amber-400"></i>
+          <h2 class="font-bold text-base text-slate-200">Generated 30-Second Clips Gallery</h2>
+          <span id="clips-count-badge" class="px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 font-bold text-xs">0 Clips</span>
+        </div>
+
+        <div class="flex gap-2">
+          <button onclick="fetchClipsList()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition flex items-center gap-1">
+            <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            Refresh Gallery
+          </button>
+          <a href="/api/download-all-zip" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-lg text-xs transition flex items-center gap-1">
+            <i data-lucide="download" class="w-3 h-3"></i>
+            Download ZIP
+          </a>
+        </div>
+      </div>
+
+      <!-- Clips Grid -->
+      <div id="clips-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div class="col-span-full py-8 text-center text-slate-500 text-xs">
+          Loading clips...
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Video Modal -->
+  <div id="video-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" onclick="closeVideoModal()">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden max-w-sm w-full shadow-2xl" onclick="event.stopPropagation()">
+      <div class="p-3 border-b border-slate-800 flex justify-between items-center">
+        <span id="modal-title" class="text-xs font-bold text-slate-200 truncate">Clip Preview</span>
+        <button onclick="closeVideoModal()" class="text-slate-400 hover:text-white text-xs">✕</button>
+      </div>
+      <div class="p-3 flex justify-center bg-black">
+        <video id="modal-video-player" controls autoplay class="w-full max-h-[500px] rounded-lg"></video>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

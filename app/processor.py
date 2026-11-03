@@ -185,14 +185,24 @@ def _render_part_task(task_data: dict) -> Optional[dict]:
             pass
 
     out_file = Path(output_path)
+    final_file = Path(task_data.get("final_path", output_path))
+
     if success and out_file.exists():
-        return {
-            "part": part_num,
-            "filename": clip_name,
-            "path": output_path,
-            "duration": round(duration, 1),
-            "size_mb": round(out_file.stat().st_size / (1024 * 1024), 2)
-        }
+        try:
+            # Atomic rename from .tmp to final filename
+            if out_file != final_file:
+                shutil.move(str(out_file), str(final_file))
+        except Exception as e:
+            print(f"[Rename error] {e}")
+
+        if final_file.exists():
+            return {
+                "part": part_num,
+                "filename": clip_name,
+                "path": str(final_file),
+                "duration": round(duration, 1),
+                "size_mb": round(final_file.stat().st_size / (1024 * 1024), 2)
+            }
     return None
 
 def process_episode_into_shorts(
@@ -252,14 +262,16 @@ def process_episode_into_shorts(
             overlay_img.save(str(overlay_file), "PNG")
 
             clip_name = f"tmkoc_ep{episode_num}_part{current_part_num}.mp4"
-            output_file = CLIPS_DIR / clip_name
+            final_output_file = CLIPS_DIR / clip_name
+            tmp_output_file = CLIPS_DIR / f".tmp_{clip_name}"
 
             tasks.append({
                 "video_path": video_path,
                 "overlay_path": str(overlay_file),
                 "start_time": start_time_offset,
                 "duration": actual_duration,
-                "output_path": str(output_file),
+                "output_path": str(tmp_output_file),
+                "final_path": str(final_output_file),
                 "clip_name": clip_name,
                 "part_num": current_part_num,
                 "use_blurred_bg": use_blurred_bg
@@ -377,20 +389,21 @@ def watch_folder_worker():
                     ep_num = parse_episode_number(file_path.name)
                     print(f"[Watch Folder] Blazing fast render started for Episode #{ep_num}...")
 
+                    dest = PROCESSED_RAW_DIR / file_path.name
+                    try:
+                        shutil.move(str(file_path), str(dest))
+                        actual_video_path = str(dest)
+                    except Exception:
+                        actual_video_path = str(file_path)
+
                     start_processing_job(
-                        video_path=str(file_path),
+                        video_path=actual_video_path,
                         episode_num=ep_num,
                         clip_duration=DEFAULT_CLIP_DURATION,
                         start_part=1,
                         use_blurred_bg=True,
                         auto_schedule=True
                     )
-
-                    dest = PROCESSED_RAW_DIR / file_path.name
-                    try:
-                        shutil.move(str(file_path), str(dest))
-                    except Exception:
-                        pass
 
         except Exception as e:
             print(f"[Watcher Error] {e}")

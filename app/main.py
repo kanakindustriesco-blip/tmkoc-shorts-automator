@@ -235,12 +235,37 @@ async def clear_scheduler():
     scheduler_instance.clear_queue()
     return {"success": True, "message": "Queue cleared."}
 
+def natural_clip_sort_key(path: Path):
+    import re
+    # Extract episode and part number
+    match = re.search(r'ep(\d+)_part(\d+)', path.name, re.IGNORECASE)
+    if match:
+        return (int(match.group(1)), int(match.group(2)))
+    # Fallback to part number or any number
+    part_match = re.search(r'part(\d+)', path.name, re.IGNORECASE)
+    if part_match:
+        return (0, int(part_match.group(1)))
+    digits = re.findall(r'\d+', path.name)
+    return (0, int(digits[0]) if digits else 0, path.name)
+
 @app.get("/api/clips")
 async def list_clips():
+    import re
     clips = []
-    for file in sorted(CLIPS_DIR.glob("*.mp4")):
+    # Natural sort by episode and part number
+    for file in sorted(CLIPS_DIR.glob("*.mp4"), key=natural_clip_sort_key):
+        if file.name.startswith(".tmp_"):
+            continue
+
+        match = re.search(r'ep(\d+)_part(\d+)', file.name, re.IGNORECASE)
+        ep_no = match.group(1) if match else "1"
+        part_no = int(match.group(2)) if match else 1
+
         clips.append({
             "filename": file.name,
+            "display_title": f"Episode {ep_no} • Part {part_no}",
+            "episode": ep_no,
+            "part": part_no,
             "url": f"/clips_media/{file.name}",
             "size_mb": round(file.stat().st_size / (1024 * 1024), 2),
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(file.stat().st_ctime))

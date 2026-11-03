@@ -339,25 +339,28 @@ async function fetchClipsList() {
     }
 
     grid.innerHTML = clips.map(clip => `
-      <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-amber-500/40 transition group">
+      <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-amber-500/40 transition group shadow-lg">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-bold text-amber-400 truncate max-w-[150px]">${clip.filename}</span>
-          <span class="text-[10px] text-slate-500">${clip.size_mb} MB</span>
+          <span class="text-xs font-extrabold text-amber-400 truncate max-w-[160px]">${clip.display_title || clip.filename}</span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 font-mono">${clip.size_mb} MB</span>
         </div>
-        <div class="aspect-[9/16] bg-slate-900 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer mb-2.5" onclick="openVideoModal('${clip.url}', '${clip.filename}')">
-          <video src="${clip.url}" class="w-full h-full object-cover"></video>
+        <div class="aspect-[9/16] bg-slate-900 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer mb-2.5" onclick="openVideoModal('${clip.url}', '${clip.display_title || clip.filename}')">
+          <video src="${clip.url}" preload="metadata" class="w-full h-full object-cover"></video>
           <div class="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center transition">
             <div class="w-10 h-10 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg group-hover:scale-110 transition">
               <i data-lucide="play" class="w-4 h-4 fill-current"></i>
             </div>
           </div>
+          <div class="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 backdrop-blur text-[10px] text-amber-300 font-extrabold">
+            PART ${clip.part || 1}
+          </div>
         </div>
         <div class="flex gap-2">
-          <button onclick="openVideoModal('${clip.url}', '${clip.filename}')" class="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition text-center flex items-center justify-center gap-1">
+          <button onclick="openVideoModal('${clip.url}', '${clip.display_title || clip.filename}')" class="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold transition text-center flex items-center justify-center gap-1">
             <i data-lucide="play" class="w-3 h-3 text-amber-400"></i>
-            Play
+            Play Clip
           </button>
-          <a href="${clip.url}" download="${clip.filename}" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold transition flex items-center justify-center">
+          <a href="${clip.url}" download="${clip.filename}" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold transition flex items-center justify-center" title="Download Short">
             <i data-lucide="download" class="w-3 h-3"></i>
           </a>
         </div>
@@ -370,16 +373,18 @@ async function fetchClipsList() {
   }
 }
 
-// Video Modal Player
+// Video Modal Player (Forces fresh stream without browser cache pause)
 function openVideoModal(url, title) {
   const modal = document.getElementById("video-modal");
   const player = document.getElementById("modal-video-player");
   const titleEl = document.getElementById("modal-title");
 
   titleEl.textContent = title;
-  player.src = url;
+  // Cache-busting timestamp ensures browser requests full complete file instead of stale partial buffer
+  player.src = `${url}?t=${Date.now()}`;
   modal.classList.remove("hidden");
-  player.play();
+  player.load();
+  player.play().catch(e => console.log("Autoplay waiting for interaction:", e));
 }
 
 function closeVideoModal() {

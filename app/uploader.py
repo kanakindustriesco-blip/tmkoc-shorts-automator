@@ -2,14 +2,367 @@ import os
 import shutil
 import json
 import time
+import pickle
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
-from app.config import READY_DIR, DAILY_THUMBNAIL_PATH
+from app.config import (
+    READY_DIR,
+    DAILY_THUMBNAIL_PATH,
+    SOCIAL_SETTINGS_PATH,
+    IG_SESSION_PATH,
+    YT_SECRETS_PATH,
+    YT_TOKEN_PATH,
+    UPLOAD_HISTORY_PATH
+)
+
+# ----------------- Settings & History Helpers -----------------
+
+def get_social_settings() -> Dict[str, Any]:
+    default_settings = {
+        "instagram": {
+            "username": "",
+            "is_connected": False,
+            "auto_upload": False,
+            "last_login": None,
+            "last_upload": None
+        },
+        "youtube": {
+            "has_secrets": False,
+            "is_connected": False,
+            "auto_upload": False,
+            "privacy_status": "public",
+            "last_upload": None
+        }
+    }
+    if not SOCIAL_SETTINGS_PATH.exists():
+        return default_settings
+
+    try:
+        with open(SOCIAL_SETTINGS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            # Merge with defaults
+            default_settings["instagram"].update(data.get("instagram", {}))
+            default_settings["youtube"].update(data.get("youtube", {}))
+            # Verify actual files exist on disk
+            default_settings["instagram"]["is_connected"] = IG_SESSION_PATH.exists() and bool(default_settings["instagram"].get("username"))
+            default_settings["youtube"]["has_secrets"] = YT_SECRETS_PATH.exists()
+            default_settings["youtube"]["is_connected"] = YT_TOKEN_PATH.exists()
+            return default_settings
+    except Exception:
+        return default_settings
+
+def save_social_settings(settings: Dict[str, Any]):
+    with open(SOCIAL_SETTINGS_PATH, "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=2)
+
+def get_upload_history() -> List[Dict[str, Any]]:
+    if not UPLOAD_HISTORY_PATH.exists():
+        return []
+    try:
+        with open(UPLOAD_HISTORY_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def record_upload(platform: str, filename: str, status: str, url: Optional[str] = None, error: Optional[str] = None):
+    history = get_upload_history()
+    entry = {
+        "id": f"up_{int(time.time())}_{platform.lower()}",
+        "platform": platform,
+        "filename": filename,
+        "status": status,
+        "url": url,
+        "error": error,
+        "timestamp": time.strftime("%Y-%m-%d %I:%M:%S %p")
+    }
+    history.insert(0, entry)
+    # Keep last 100 entries
+    history = history[:100]
+    with open(UPLOAD_HISTORY_PATH, "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2)
+
+# ----------------- Instagram Integration -----------------
+
+def get_instagram_client():
+    from instagrapi import Client
+    cl = Client()
+    cl.delay_range = [1, 3]
+    if IG_SESSION_PATH.exists():
+        try:
+            cl.load_settings(str(IG_SESSION_PATH))
+        except Exception as e:
+            print(f"[Instagram] Warning loading session: {e}")
+    return cl
+
+def configure_instagram(username: str, password: Optional[str] = None, auto_upload: Optional[bool] = None) -> Dict[str, Any]:
+    username = username.strip()
+    settings = get_social_settings()
+    
+    if auto_upload is not None:
+        settings["instagram"]["auto_upload"] = bool(auto_upload)
+
+    if not password and IG_SESSION_PATH.exists() and settings["instagram"].get("username") == username:
+        # Just updating auto_upload or checking existing session
+        save_social_settings(settings)
+        return {"success": True, "message": f"Instagram session active for @{username}", "username": username}
+
+    if not password:
+        return {"success": False, "error": "Password required to authenticate with Instagram."}
+
+    from instagrapi import Client
+    cl = Client()
+    cl.delay_range = [1, 3]
+
+    try:
+        # Attempt login
+        logged_in = cl.login(username, password)
+        if logged_in:
+            cl.dump_settings(str(IG_SESSION_PATH))
+            settings["instagram"]["username"] = username
+            settings["instagram"]["is_connected"] = True
+            settings["instagram"]["last_login"] = time.strftime("%Y-%m-%d %I:%M:%S %p")
+            save_social_settings(settings)
+            return {"success": True, "message": f"Successfully connected Instagram @{username}!", "username": username}
+        else:
+            return {"success": False, "error": "Login failed. Please check your username and password."}
+    except Exception as e:
+        err_msg = str(e)
+        if "challenge_required" in err_msg.lower():
+            err_msg = "Instagram checkpoint/challenge triggered. Please open the Instagram app on your phone to approve the login, then retry."
+        elif "bad_password" in err_msg.lower():
+            err_msg = "Incorrect Instagram password."
+        return {"success": False, "error": err_msg}
+
+def disconnect_instagram() -> Dict[str, Any]:
+    if IG_SESSION_PATH.exists():
+        try:
+            os.remove(IG_SESSION_PATH)
+        except Exception:
+            pass
+    settings = get_social_settings()
+    settings["instagram"]["is_connected"] = False
+    settings["instagram"]["auto_upload"] = False
+    save_social_settings(settings)
+    return {"success": True, "message": "Instagram disconnected."}
+
+def publish_to_instagram(clip_path: str, caption: str, thumb_path: Optional[str] = None) -> Dict[str, Any]:
+    settings = get_social_settings()
+    if not settings["instagram"]["is_connected"]:
+        return {"success": False, "error": "Instagram not connected. Please connect your account first in Settings."}
+
+    src = Path(clip_path)
+    if not src.exists():
+        return {"success": False, "error": f"Clip file not found: {clip_path}"}
+
+    try:
+        cl = get_instagram_client()
+        # Verify login state
+        try:
+            cl.get_timeline_feed()
+        except Exception:
+            # Re-dump or fail
+            pass
+
+        thumb = Path(thumb_path) if thumb_path and Path(thumb_path).exists() else None
+        media = cl.clip_upload(
+            path=src,
+            caption=caption,
+            thumbnail=thumb,
+            show_preview_in_feed=True
+        )
+
+        reel_url = f"https://www.instagram.com/reel/{media.code}/" if hasattr(media, "code") else "https://www.instagram.com/"
+        record_upload("Instagram", src.name, "success", url=reel_url)
+        
+        settings["instagram"]["last_upload"] = time.strftime("%Y-%m-%d %I:%M:%S %p")
+        save_social_settings(settings)
+
+        return {
+            "success": True,
+            "media_id": str(media.id) if hasattr(media, "id") else None,
+            "url": reel_url,
+            "message": "Reel published to Instagram successfully!"
+        }
+    except Exception as e:
+        err_msg = str(e)
+        record_upload("Instagram", src.name, "error", error=err_msg)
+        return {"success": False, "error": f"Instagram upload error: {err_msg}"}
+
+# ----------------- YouTube Shorts Integration -----------------
+
+def configure_youtube_secrets(secrets_json_str: str) -> Dict[str, Any]:
+    try:
+        data = json.loads(secrets_json_str)
+        if "installed" not in data and "web" not in data:
+            return {"success": False, "error": "Invalid client_secrets.json format. Expected 'installed' or 'web' root key."}
+        
+        with open(YT_SECRETS_PATH, "w", encoding="utf-8") as f:
+            f.write(secrets_json_str)
+
+        settings = get_social_settings()
+        settings["youtube"]["has_secrets"] = True
+        save_social_settings(settings)
+        return {"success": True, "message": "Google Client Secrets uploaded successfully! You can now click 'Connect YouTube Channel'."}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to parse JSON: {str(e)}"}
+
+def authenticate_youtube() -> Dict[str, Any]:
+    if not YT_SECRETS_PATH.exists():
+        return {"success": False, "error": "client_secrets.json not found. Please upload it first."}
+
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
+    try:
+        flow = InstalledAppFlow.from_client_secrets_file(str(YT_SECRETS_PATH), SCOPES)
+        # This opens the default browser for 1-click Google account approval
+        credentials = flow.run_local_server(port=0, prompt='consent')
+        
+        with open(YT_TOKEN_PATH, 'wb') as f:
+            pickle.dump(credentials, f)
+
+        settings = get_social_settings()
+        settings["youtube"]["is_connected"] = True
+        save_social_settings(settings)
+
+        return {"success": True, "message": "YouTube channel connected successfully!"}
+    except Exception as e:
+        return {"success": False, "error": f"YouTube authorization failed: {str(e)}"}
+
+def disconnect_youtube() -> Dict[str, Any]:
+    if YT_TOKEN_PATH.exists():
+        try:
+            os.remove(YT_TOKEN_PATH)
+        except Exception:
+            pass
+    settings = get_social_settings()
+    settings["youtube"]["is_connected"] = False
+    settings["youtube"]["auto_upload"] = False
+    save_social_settings(settings)
+    return {"success": True, "message": "YouTube channel disconnected."}
+
+def get_youtube_service():
+    if not YT_TOKEN_PATH.exists():
+        return None
+
+    from googleapiclient.discovery import build
+    from google.auth.transport.requests import Request
+
+    with open(YT_TOKEN_PATH, 'rb') as f:
+        credentials = pickle.load(f)
+
+    if credentials.expired and credentials.refresh_token:
+        credentials.refresh(Request())
+        with open(YT_TOKEN_PATH, 'wb') as f:
+            pickle.dump(credentials, f)
+
+    return build('youtube', 'v3', credentials=credentials)
+
+def publish_to_youtube_shorts(
+    clip_path: str,
+    title: str,
+    description: str,
+    tags: list,
+    thumb_path: Optional[str] = None,
+    privacy_status: Optional[str] = None
+) -> Dict[str, Any]:
+    settings = get_social_settings()
+    if not settings["youtube"]["is_connected"]:
+        return {"success": False, "error": "YouTube not connected. Please connect your channel in Settings."}
+
+    src = Path(clip_path)
+    if not src.exists():
+        return {"success": False, "error": f"Clip file not found: {clip_path}"}
+
+    if not privacy_status:
+        privacy_status = settings["youtube"].get("privacy_status", "public")
+
+    try:
+        youtube = get_youtube_service()
+        if not youtube:
+            return {"success": False, "error": "Failed to initialize YouTube service."}
+
+        from googleapiclient.http import MediaFileUpload
+
+        body = {
+            'snippet': {
+                'title': title[:100],  # YouTube title max 100 chars
+                'description': description,
+                'tags': tags,
+                'categoryId': '23'  # Comedy
+            },
+            'status': {
+                'privacyStatus': privacy_status,
+                'selfDeclaredMadeForKids': False
+            }
+        }
+
+        media = MediaFileUpload(
+            str(src),
+            chunksize=1024 * 1024 * 5,  # 5MB chunks
+            resumable=True,
+            mimetype='video/mp4'
+        )
+
+        request = youtube.videos().insert(
+            part=','.join(body.keys()),
+            body=body,
+            media_body=media
+        )
+
+        response = None
+        while response is None:
+            status, response = request.next_chunk()
+
+        video_id = response.get('id')
+        shorts_url = f"https://youtube.com/shorts/{video_id}"
+
+        # Set thumbnail if provided and file exists
+        if thumb_path and Path(thumb_path).exists() and video_id:
+            try:
+                youtube.thumbnails().set(
+                    videoId=video_id,
+                    media_body=MediaFileUpload(str(thumb_path), mimetype='image/jpeg')
+                ).execute()
+            except Exception as thumb_err:
+                print(f"[YouTube] Note: Custom thumbnail set skipped/failed: {thumb_err}")
+
+        record_upload("YouTube", src.name, "success", url=shorts_url)
+        settings["youtube"]["last_upload"] = time.strftime("%Y-%m-%d %I:%M:%S %p")
+        save_social_settings(settings)
+
+        return {
+            "success": True,
+            "video_id": video_id,
+            "url": shorts_url,
+            "message": "Short uploaded to YouTube successfully!"
+        }
+    except Exception as e:
+        err_msg = str(e)
+        record_upload("YouTube", src.name, "error", error=err_msg)
+        return {"success": False, "error": f"YouTube upload error: {err_msg}"}
+
+# ----------------- Unified Publisher & Local Ready Folder -----------------
+
+def get_clip_metadata(episode_num: str, part_num: int) -> Dict[str, Any]:
+    title = f"TMKOC Episode {episode_num} | Part {part_num} 😂 #tmkoc #shorts #comedy"
+    description = (
+        f"Taarak Mehta Ka Ooltah Chashmah - Episode {episode_num} (Part {part_num})\n"
+        f"Follow & Subscribe for Part {int(part_num) + 1}!\n\n"
+        f"#tmkoc #taarakmehta #jethalal #babitaji #dayabhabhi #comedy #shorts #reels #viral"
+    )
+    tags = ["tmkoc", "taarak mehta", "jethalal", "babita", "daya", "comedy", "shorts", "reels", "funny"]
+    return {
+        "title": title,
+        "description": description,
+        "tags": tags
+    }
 
 def publish_to_local_folder(clip_path: str, episode_num: str, part_num: int) -> Dict[str, Any]:
     """
     Publishes clip and attached daily thumbnail to 'ready_to_publish' folder with viral social tags.
+    Also triggers auto-upload to Instagram & YouTube if enabled in settings!
     """
     src = Path(clip_path)
     if not src.exists():
@@ -18,59 +371,60 @@ def publish_to_local_folder(clip_path: str, episode_num: str, part_num: int) -> 
     dest_video = READY_DIR / src.name
     shutil.copy2(src, dest_video)
 
-    # Attach Daily Thumbnail for Instagram & YouTube if available
+    # Attach Daily Thumbnail or Part Thumbnail if available
     dest_thumb_str = None
-    if DAILY_THUMBNAIL_PATH.exists():
+    clip_thumb = src.parent / f"{src.stem}_thumb.jpg"
+    if clip_thumb.exists():
+        dest_thumb = READY_DIR / f"{src.stem}_thumb.jpg"
+        shutil.copy2(clip_thumb, dest_thumb)
+        dest_thumb_str = str(dest_thumb)
+    elif DAILY_THUMBNAIL_PATH.exists():
         dest_thumb = READY_DIR / f"{src.stem}_thumb.jpg"
         shutil.copy2(DAILY_THUMBNAIL_PATH, dest_thumb)
         dest_thumb_str = str(dest_thumb)
 
-    # Generate metadata with viral tags for TMKOC
-    title = f"TMKOC Episode {episode_num} | Part {part_num} 😂 #tmkoc #shorts #comedy"
-    description = (
-        f"Taarak Mehta Ka Ooltah Chashmah - Episode {episode_num} (Part {part_num})\n"
-        f"Follow & Subscribe for Part {part_num + 1}!\n\n"
-        f"#tmkoc #taarakmehta #jethalal #babitaji #dayabhabhi #comedy #shorts #reels #viral"
-    )
-    tags = ["tmkoc", "taarak mehta", "jethalal", "babita", "daya", "comedy", "shorts", "reels", "funny"]
+    meta = get_clip_metadata(episode_num, part_num)
 
     meta_file = READY_DIR / f"{src.stem}_info.json"
     with open(meta_file, "w", encoding="utf-8") as f:
         json.dump({
-            "episode": episode_num,
-            "part": part_num,
+            "episode": str(episode_num),
+            "part": int(part_num),
             "video_file": str(dest_video),
             "thumbnail_file": dest_thumb_str,
             "platforms": ["YouTube Shorts", "Instagram Reels"],
-            "title": title,
-            "description": description,
-            "tags": tags,
+            "title": meta["title"],
+            "description": meta["description"],
+            "tags": meta["tags"],
             "published_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }, f, indent=2)
+
+    # Check social auto-upload
+    settings = get_social_settings()
+    social_results = {}
+
+    if settings["instagram"].get("is_connected") and settings["instagram"].get("auto_upload"):
+        print(f"[Auto-Upload] Uploading {src.name} to Instagram Reels...")
+        ig_res = publish_to_instagram(str(dest_video), caption=meta["description"], thumb_path=dest_thumb_str)
+        social_results["instagram"] = ig_res
+
+    if settings["youtube"].get("is_connected") and settings["youtube"].get("auto_upload"):
+        print(f"[Auto-Upload] Uploading {src.name} to YouTube Shorts...")
+        yt_res = publish_to_youtube_shorts(
+            clip_path=str(dest_video),
+            title=meta["title"],
+            description=meta["description"],
+            tags=meta["tags"],
+            thumb_path=dest_thumb_str,
+            privacy_status=settings["youtube"].get("privacy_status", "public")
+        )
+        social_results["youtube"] = yt_res
 
     return {
         "success": True,
         "destination": str(dest_video),
         "thumbnail": dest_thumb_str,
-        "title": title,
-        "description": description
-    }
-
-def publish_to_youtube_shorts(clip_path: str, title: str, description: str, tags: list) -> Dict[str, Any]:
-    """
-    Stub for YouTube Shorts Data API v3 upload.
-    If client_secrets.json exists, uploads directly; otherwise returns instructions.
-    """
-    return {
-        "success": False,
-        "message": "YouTube OAuth not configured. Clip placed in ready_to_publish folder for 1-click upload."
-    }
-
-def publish_to_instagram(clip_path: str, caption: str) -> Dict[str, Any]:
-    """
-    Stub for Instagram Reels upload.
-    """
-    return {
-        "success": False,
-        "message": "Instagram credentials not configured. Clip placed in ready_to_publish folder."
+        "title": meta["title"],
+        "description": meta["description"],
+        "social_uploads": social_results
     }

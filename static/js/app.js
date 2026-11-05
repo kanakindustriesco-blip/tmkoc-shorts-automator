@@ -12,6 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupDragAndDrop();
   updateLivePreview();
   fetchDailyThumbnail();
+  fetchSocialSettings();
   fetchClipsList();
   fetchSchedulerStatus();
   schedulerTimer = setInterval(fetchSchedulerStatus, 4000);
@@ -426,18 +427,32 @@ async function fetchClipsList() {
             <span>📸 Reel Cover</span>
           </div>` : ''}
         </div>
-        <div class="flex gap-1.5">
-          <button onclick="openVideoModal('${clip.url}', '${clip.display_title || clip.filename}')" class="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold transition text-center flex items-center justify-center gap-1">
-            <i data-lucide="play" class="w-3 h-3 text-amber-400"></i>
-            Play
-          </button>
-          ${clip.thumbnail_url ? `
-          <a href="${clip.thumbnail_url}" download="${clip.filename.replace('.mp4', '_thumb.jpg')}" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-pink-400 border border-pink-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center" title="Download Thumbnail for Instagram / YouTube">
-            <i data-lucide="image" class="w-3 h-3"></i>
-          </a>` : ''}
-          <a href="${clip.url}" download="${clip.filename}" class="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold transition flex items-center justify-center" title="Download Short">
-            <i data-lucide="download" class="w-3 h-3"></i>
-          </a>
+        <div class="space-y-1.5 mt-2">
+          <!-- Row 1: Play, Cover, Video Download -->
+          <div class="flex gap-1.5">
+            <button onclick="openVideoModal('${clip.url}', '${clip.display_title || clip.filename}')" class="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1">
+              <i data-lucide="play" class="w-3 h-3 text-amber-400"></i>
+              Play
+            </button>
+            ${clip.thumbnail_url ? `
+            <a href="${clip.thumbnail_url}" download="${clip.filename.replace('.mp4', '_thumb.jpg')}" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-pink-400 border border-pink-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center" title="Download Thumbnail for Instagram / YouTube">
+              <i data-lucide="image" class="w-3 h-3"></i>
+            </a>` : ''}
+            <a href="${clip.url}" download="${clip.filename}" class="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold transition flex items-center justify-center" title="Download Short">
+              <i data-lucide="download" class="w-3 h-3"></i>
+            </a>
+          </div>
+
+          <!-- Row 2: 1-Click Upload & Copy Viral Tags -->
+          <div class="flex gap-1.5">
+            <button onclick="openSocialModal('${clip.filename}')" class="flex-1 py-1.5 bg-gradient-to-r from-pink-600 via-purple-600 to-red-600 hover:from-pink-500 hover:to-red-500 text-white rounded-lg text-xs font-extrabold transition flex items-center justify-center gap-1 shadow">
+              <i data-lucide="share-2" class="w-3 h-3"></i>
+              Upload / Post
+            </button>
+            <button onclick="copyClipMetadata('${clip.filename}')" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 rounded-lg text-xs font-bold transition flex items-center justify-center" title="Copy Caption & Viral Tags">
+              <i data-lucide="copy" class="w-3 h-3"></i>
+            </button>
+          </div>
         </div>
       </div>
     `).join("");
@@ -468,4 +483,328 @@ function closeVideoModal() {
   player.pause();
   player.src = "";
   modal.classList.add("hidden");
+}
+
+// --- Social Media Integration State & Handlers ---
+let activeSocialFilename = null;
+
+async function fetchSocialSettings() {
+  try {
+    const res = await fetch("/api/social/settings");
+    const data = await res.json();
+    
+    // Update Instagram UI
+    const igBadge = document.getElementById("ig-status-badge");
+    const igForm = document.getElementById("ig-login-form");
+    const igConnectedBox = document.getElementById("ig-connected-box");
+    const igUserText = document.getElementById("ig-connected-user");
+    const igToggleAuto = document.getElementById("ig-toggle-auto");
+
+    if (data.instagram && data.instagram.is_connected) {
+      if (igBadge) {
+        igBadge.textContent = "Connected ✅";
+        igBadge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+      }
+      if (igForm) igForm.classList.add("hidden");
+      if (igConnectedBox) igConnectedBox.classList.remove("hidden");
+      if (igUserText) igUserText.textContent = `@${data.instagram.username || 'instagram_user'}`;
+      if (igToggleAuto) igToggleAuto.checked = Boolean(data.instagram.auto_upload);
+    } else {
+      if (igBadge) {
+        igBadge.textContent = "Disconnected";
+        igBadge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400";
+      }
+      if (igForm) igForm.classList.remove("hidden");
+      if (igConnectedBox) igConnectedBox.classList.add("hidden");
+    }
+
+    // Update YouTube UI
+    const ytBadge = document.getElementById("yt-status-badge");
+    const ytForm = document.getElementById("yt-login-form");
+    const ytConnectedBox = document.getElementById("yt-connected-box");
+    const ytSecretsStatus = document.getElementById("yt-secrets-status");
+    const ytToggleAuto = document.getElementById("yt-toggle-auto");
+    const ytPrivacySelect = document.getElementById("yt-privacy-select");
+
+    if (data.youtube && data.youtube.is_connected) {
+      if (ytBadge) {
+        ytBadge.textContent = "Connected ✅";
+        ytBadge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+      }
+      if (ytForm) ytForm.classList.add("hidden");
+      if (ytConnectedBox) ytConnectedBox.classList.remove("hidden");
+      if (ytToggleAuto) ytToggleAuto.checked = Boolean(data.youtube.auto_upload);
+      if (ytPrivacySelect && data.youtube.privacy_status) {
+        ytPrivacySelect.value = data.youtube.privacy_status;
+      }
+    } else {
+      if (ytBadge) {
+        ytBadge.textContent = data.youtube && data.youtube.has_secrets ? "Ready to Connect" : "Disconnected";
+        ytBadge.className = data.youtube && data.youtube.has_secrets 
+          ? "px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30"
+          : "px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400";
+      }
+      if (ytForm) ytForm.classList.remove("hidden");
+      if (ytConnectedBox) ytConnectedBox.classList.add("hidden");
+      if (ytSecretsStatus) {
+        ytSecretsStatus.textContent = data.youtube && data.youtube.has_secrets ? "✓ client_secrets.json loaded" : "Upload client_secrets.json from Google Cloud";
+      }
+    }
+  } catch (e) {
+    console.error("Social settings fetch error:", e);
+  }
+}
+
+async function handleInstagramConnect() {
+  const username = document.getElementById("ig-input-username").value.trim();
+  const password = document.getElementById("ig-input-password").value;
+  const btn = document.getElementById("btn-ig-connect");
+
+  if (!username || !password) {
+    alert("Please enter Instagram username and password.");
+    return;
+  }
+
+  const originalText = btn.innerHTML;
+  btn.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Connecting...`;
+  if (window.lucide) lucide.createIcons();
+
+  try {
+    const res = await fetch("/api/social/instagram/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Connection failed");
+
+    showToast("Instagram connected successfully!");
+    document.getElementById("ig-input-password").value = "";
+    fetchSocialSettings();
+  } catch (e) {
+    alert("Instagram Error: " + e.message);
+  } finally {
+    btn.innerHTML = originalText;
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+async function handleInstagramDisconnect() {
+  if (!confirm("Are you sure you want to disconnect Instagram?")) return;
+  try {
+    await fetch("/api/social/instagram/disconnect", { method: "POST" });
+    showToast("Instagram disconnected.");
+    fetchSocialSettings();
+  } catch (e) {
+    alert("Disconnect failed: " + e.message);
+  }
+}
+
+async function toggleInstagramAuto(checkbox) {
+  try {
+    await fetch("/api/social/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "instagram", auto_upload: checkbox.checked })
+    });
+    showToast(checkbox.checked ? "Instagram Auto-Post ENABLED" : "Instagram Auto-Post DISABLED");
+  } catch (e) {
+    console.error("Toggle IG failed:", e);
+  }
+}
+
+async function handleYouTubeSecretsFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const status = document.getElementById("yt-secrets-status");
+  status.textContent = "Uploading client_secrets.json...";
+
+  try {
+    const res = await fetch("/api/social/youtube/upload-secrets", {
+      method: "POST",
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Upload failed");
+
+    status.textContent = "✓ client_secrets.json verified! Click Connect below.";
+    showToast("Client Secrets uploaded!");
+    fetchSocialSettings();
+  } catch (e) {
+    alert("YouTube Secrets Error: " + e.message);
+    status.textContent = "Upload failed. Check format.";
+  }
+}
+
+async function handleYouTubeConnect() {
+  const btn = document.getElementById("btn-yt-connect");
+  const originalText = btn.innerHTML;
+  btn.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Authorizing Google Account...`;
+  if (window.lucide) lucide.createIcons();
+
+  showToast("Opening Google Authorization in your browser...");
+
+  try {
+    const res = await fetch("/api/social/youtube/connect", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Authorization failed");
+
+    showToast("YouTube Channel connected!");
+    fetchSocialSettings();
+  } catch (e) {
+    alert("YouTube Error: " + e.message);
+  } finally {
+    btn.innerHTML = originalText;
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+async function handleYouTubeDisconnect() {
+  if (!confirm("Are you sure you want to disconnect YouTube?")) return;
+  try {
+    await fetch("/api/social/youtube/disconnect", { method: "POST" });
+    showToast("YouTube disconnected.");
+    fetchSocialSettings();
+  } catch (e) {
+    alert("Disconnect failed: " + e.message);
+  }
+}
+
+async function toggleYouTubeAuto(checkbox) {
+  try {
+    await fetch("/api/social/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "youtube", auto_upload: checkbox.checked })
+    });
+    showToast(checkbox.checked ? "YouTube Auto-Post ENABLED" : "YouTube Auto-Post DISABLED");
+  } catch (e) {
+    console.error("Toggle YT failed:", e);
+  }
+}
+
+async function handleYouTubePrivacyChange(select) {
+  try {
+    await fetch("/api/social/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "youtube", privacy_status: select.value })
+    });
+    showToast(`YouTube Visibility set to ${select.value.toUpperCase()}`);
+  } catch (e) {
+    console.error("YT privacy update failed:", e);
+  }
+}
+
+// --- 1-Click Upload & Modal Handlers ---
+
+async function openSocialModal(filename) {
+  activeSocialFilename = filename;
+  const modal = document.getElementById("social-modal");
+  const title = document.getElementById("social-modal-title");
+  const filenameEl = document.getElementById("social-modal-filename");
+  const captionEl = document.getElementById("social-modal-caption");
+  const resultBox = document.getElementById("social-upload-result");
+
+  filenameEl.textContent = filename;
+  title.textContent = `Upload / Post: ${filename}`;
+  captionEl.value = "Loading metadata...";
+  resultBox.className = "hidden";
+  modal.classList.remove("hidden");
+
+  try {
+    const res = await fetch(`/api/social/metadata/${filename}`);
+    const meta = await res.json();
+    captionEl.value = meta.description;
+  } catch (e) {
+    captionEl.value = `TMKOC ${filename} 😂 #tmkoc #shorts #reels`;
+  }
+}
+
+function closeSocialModal() {
+  const modal = document.getElementById("social-modal");
+  modal.classList.add("hidden");
+  activeSocialFilename = null;
+}
+
+function copyCurrentModalCaption() {
+  const caption = document.getElementById("social-modal-caption").value;
+  navigator.clipboard.writeText(caption).then(() => {
+    showToast("Caption Copied to Clipboard!");
+  });
+}
+
+async function copyClipMetadata(filename) {
+  try {
+    const res = await fetch(`/api/social/metadata/${filename}`);
+    const meta = await res.json();
+    await navigator.clipboard.writeText(meta.description);
+    showToast(`Part metadata & viral tags copied!`);
+  } catch (e) {
+    navigator.clipboard.writeText(`TMKOC ${filename} 😂 #tmkoc #shorts #reels`);
+    showToast("Tags copied!");
+  }
+}
+
+async function triggerDirectUpload(platform) {
+  if (!activeSocialFilename) return;
+
+  const resultBox = document.getElementById("social-upload-result");
+  const caption = document.getElementById("social-modal-caption").value;
+
+  resultBox.className = "p-3 rounded-xl text-xs font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30 flex items-center gap-2";
+  resultBox.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Uploading to ${platform.toUpperCase()}... Please wait...`;
+  if (window.lucide) lucide.createIcons();
+
+  try {
+    const res = await fetch("/api/social/upload-single", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: activeSocialFilename,
+        platform: platform,
+        custom_caption: caption
+      })
+    });
+    const data = await res.json();
+
+    if (!data.success) {
+      let errs = [];
+      if (data.results?.instagram?.error) errs.push(`Instagram: ${data.results.instagram.error}`);
+      if (data.results?.youtube?.error) errs.push(`YouTube: ${data.results.youtube.error}`);
+      throw new Error(errs.join(" | ") || data.detail || "Upload failed");
+    }
+
+    let successHtml = `<div class="space-y-1">`;
+    if (data.results?.instagram?.url) {
+      successHtml += `<p class="text-emerald-400 font-bold">✓ Instagram Reel Live! <a href="${data.results.instagram.url}" target="_blank" class="underline text-pink-400 font-bold ml-1">Open Reel</a></p>`;
+    }
+    if (data.results?.youtube?.url) {
+      successHtml += `<p class="text-emerald-400 font-bold">✓ YouTube Shorts Live! <a href="${data.results.youtube.url}" target="_blank" class="underline text-red-400 font-bold ml-1">Open Short</a></p>`;
+    }
+    successHtml += `</div>`;
+
+    resultBox.className = "p-3 rounded-xl text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30";
+    resultBox.innerHTML = successHtml;
+    showToast("Upload Successful!");
+  } catch (e) {
+    resultBox.className = "p-3 rounded-xl text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/30";
+    resultBox.innerHTML = `⚠️ ${e.message}`;
+  }
+}
+
+function showToast(message) {
+  const toast = document.getElementById("app-toast");
+  const msgEl = document.getElementById("toast-message");
+  if (!toast || !msgEl) return;
+
+  msgEl.textContent = message;
+  toast.classList.remove("hidden");
+  setTimeout(() => {
+    toast.classList.add("hidden");
+  }, 3500);
 }

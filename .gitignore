@@ -8,11 +8,17 @@ storage/inputs/*
 storage/clips/*
 storage/raw_videos/*
 storage/ready_to_publish/*
+storage/thumbnails/*
 storage/*.zip
 storage/*.mp4
 storage/*.jpg
 storage/*.png
+storage/*.json
+storage/*.pickle
+storage/*.log
+*.log
 !storage/.gitkeep
+!storage/thumbnails/.gitkeep
 
 # Keep storage directories
 !storage/inputs/.gitkeep

@@ -18,6 +18,13 @@ HTML_TEMPLATES_DIR = BASE_DIR / "templates_html"
 DEFAULT_TEMPLATE_PATH = TEMPLATES_DIR / "tmkoc_official_template.png"
 DAILY_THUMBNAIL_PATH = THUMBNAILS_DIR / "daily_thumbnail.jpg"
 
+# Social Media Integration Paths
+SOCIAL_SETTINGS_PATH = STORAGE_DIR / "social_settings.json"
+IG_SESSION_PATH = STORAGE_DIR / "instagram_session.json"
+YT_SECRETS_PATH = STORAGE_DIR / "client_secrets.json"
+YT_TOKEN_PATH = STORAGE_DIR / "youtube_token.pickle"
+UPLOAD_HISTORY_PATH = STORAGE_DIR / "upload_history.json"
+
 # Ensure directories exist
 for directory in [INPUTS_DIR, RAW_VIDEOS_DIR, PROCESSED_RAW_DIR, CLIPS_DIR, READY_DIR, THUMBNAILS_DIR, TEMPLATES_DIR, HTML_TEMPLATES_DIR]:
     directory.mkdir(parents=True, exist_ok=True)

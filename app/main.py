@@ -42,6 +42,19 @@ from app.template_engine import (
     process_daily_thumbnail,
     generate_part_thumbnail
 )
+from app.uploader import (
+    get_social_settings,
+    save_social_settings,
+    configure_instagram,
+    disconnect_instagram,
+    configure_youtube_secrets,
+    authenticate_youtube,
+    disconnect_youtube,
+    publish_to_instagram,
+    publish_to_youtube_shorts,
+    get_clip_metadata,
+    get_upload_history
+)
 from app.scheduler import scheduler_instance
 
 app = FastAPI(title="TMKOC Shorts Automator")
@@ -91,6 +104,22 @@ class ScheduleRequest(BaseModel):
     clips: List[dict]
     interval_minutes: int = DEFAULT_INTERVAL_MINUTES
     start_delay_seconds: int = 0
+
+class InstagramConnectRequest(BaseModel):
+    username: str
+    password: Optional[str] = None
+    auto_upload: Optional[bool] = None
+
+class SocialToggleRequest(BaseModel):
+    platform: str  # "instagram" or "youtube"
+    auto_upload: Optional[bool] = None
+    privacy_status: Optional[str] = None
+
+class SingleUploadRequest(BaseModel):
+    filename: str
+    platform: str  # "instagram", "youtube", or "both"
+    custom_caption: Optional[str] = None
+    privacy_status: Optional[str] = None
 
 # --- Endpoints ---
 @app.post("/api/preview")
@@ -298,6 +327,115 @@ async def apply_thumbnail_to_all_clips():
         count += 1
 
     return {"success": True, "message": f"Thumbnail applied to {count} clips successfully!", "count": count}
+
+# --- Social Media Integration Endpoints ---
+
+@app.get("/api/social/settings")
+async def get_social_media_settings():
+    return get_social_settings()
+
+@app.post("/api/social/instagram/connect")
+async def connect_instagram_account(req: InstagramConnectRequest):
+    res = configure_instagram(username=req.username, password=req.password, auto_upload=req.auto_upload)
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "Failed to connect Instagram."))
+    return res
+
+@app.post("/api/social/instagram/disconnect")
+async def disconnect_instagram_account():
+    return disconnect_instagram()
+
+@app.post("/api/social/youtube/upload-secrets")
+async def upload_youtube_secrets(file: UploadFile = File(...)):
+    content = await file.read()
+    try:
+        content_str = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid file encoding. Must be a JSON file.")
+    
+    res = configure_youtube_secrets(content_str)
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "Invalid client_secrets.json"))
+    return res
+
+@app.post("/api/social/youtube/connect")
+async def connect_youtube_account():
+    res = authenticate_youtube()
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "YouTube OAuth failed."))
+    return res
+
+@app.post("/api/social/youtube/disconnect")
+async def disconnect_youtube_account():
+    return disconnect_youtube()
+
+@app.post("/api/social/toggle")
+async def toggle_social_settings(req: SocialToggleRequest):
+    settings = get_social_settings()
+    if req.platform == "instagram":
+        if req.auto_upload is not None:
+            settings["instagram"]["auto_upload"] = req.auto_upload
+    elif req.platform == "youtube":
+        if req.auto_upload is not None:
+            settings["youtube"]["auto_upload"] = req.auto_upload
+        if req.privacy_status:
+            settings["youtube"]["privacy_status"] = req.privacy_status
+    save_social_settings(settings)
+    return {"success": True, "settings": settings}
+
+@app.get("/api/social/metadata/{filename}")
+async def get_metadata_for_clip(filename: str):
+    import re
+    match = re.search(r'ep(\d+)_part(\d+)', filename, re.IGNORECASE)
+    ep_no = match.group(1) if match else "1"
+    part_no = int(match.group(2)) if match else 1
+    return get_clip_metadata(ep_no, part_no)
+
+@app.post("/api/social/upload-single")
+async def upload_single_clip(req: SingleUploadRequest):
+    clip_path = CLIPS_DIR / req.filename
+    if not clip_path.exists():
+        raise HTTPException(status_code=404, detail=f"Clip not found: {req.filename}")
+
+    import re
+    match = re.search(r'ep(\d+)_part(\d+)', req.filename, re.IGNORECASE)
+    ep_no = match.group(1) if match else "1"
+    part_no = int(match.group(2)) if match else 1
+
+    meta = get_clip_metadata(ep_no, part_no)
+    caption = req.custom_caption or meta["description"]
+
+    # Thumbnail resolution
+    clip_thumb = CLIPS_DIR / f"{clip_path.stem}_thumb.jpg"
+    thumb_path = str(clip_thumb) if clip_thumb.exists() else (str(DAILY_THUMBNAIL_PATH) if DAILY_THUMBNAIL_PATH.exists() else None)
+
+    results = {}
+
+    if req.platform in ["instagram", "both"]:
+        ig_res = publish_to_instagram(str(clip_path), caption=caption, thumb_path=thumb_path)
+        results["instagram"] = ig_res
+
+    if req.platform in ["youtube", "both"]:
+        yt_res = publish_to_youtube_shorts(
+            clip_path=str(clip_path),
+            title=meta["title"],
+            description=caption,
+            tags=meta["tags"],
+            thumb_path=thumb_path,
+            privacy_status=req.privacy_status
+        )
+        results["youtube"] = yt_res
+
+    has_error = any(not r.get("success") for r in results.values())
+    return {
+        "success": not has_error,
+        "results": results,
+        "filename": req.filename
+    }
+
+@app.get("/api/social/history")
+async def get_social_history():
+    return get_upload_history()
 
 def natural_clip_sort_key(path: Path):
     import re

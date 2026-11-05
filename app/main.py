@@ -106,8 +106,9 @@ class ScheduleRequest(BaseModel):
     start_delay_seconds: int = 0
 
 class InstagramConnectRequest(BaseModel):
-    username: str
+    username: Optional[str] = None
     password: Optional[str] = None
+    session_id: Optional[str] = None
     auto_upload: Optional[bool] = None
 
 class SocialToggleRequest(BaseModel):
@@ -336,7 +337,12 @@ async def get_social_media_settings():
 
 @app.post("/api/social/instagram/connect")
 async def connect_instagram_account(req: InstagramConnectRequest):
-    res = configure_instagram(username=req.username, password=req.password, auto_upload=req.auto_upload)
+    res = configure_instagram(
+        username=req.username,
+        password=req.password,
+        session_id=req.session_id,
+        auto_upload=req.auto_upload
+    )
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error", "Failed to connect Instagram."))
     return res

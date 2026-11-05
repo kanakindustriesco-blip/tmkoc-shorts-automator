@@ -224,13 +224,36 @@
             </div>
 
             <!-- IG Disconnected Form -->
-            <div id="ig-login-form" class="space-y-2">
-              <input id="ig-input-username" type="text" placeholder="Instagram Username / Handle" 
-                class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-pink-500" />
-              <input id="ig-input-password" type="password" placeholder="Instagram Password" 
-                class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-pink-500" />
+            <div id="ig-login-form" class="space-y-2.5">
+              <!-- Tab selector -->
+              <div class="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800 text-[11px] font-bold">
+                <button type="button" onclick="setIgLoginMode('creds')" id="tab-ig-creds" class="flex-1 py-1 rounded-md bg-pink-600 text-white transition">
+                  Username / Password
+                </button>
+                <button type="button" onclick="setIgLoginMode('session')" id="tab-ig-session" class="flex-1 py-1 rounded-md text-slate-400 hover:text-white transition">
+                  Session ID (Recommended)
+                </button>
+              </div>
+
+              <!-- Creds inputs -->
+              <div id="ig-fields-creds" class="space-y-2">
+                <input id="ig-input-username" type="text" placeholder="Instagram Username / Handle" 
+                  class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-pink-500" />
+                <input id="ig-input-password" type="password" placeholder="Instagram Password" 
+                  class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-pink-500" />
+              </div>
+
+              <!-- Session ID input -->
+              <div id="ig-fields-session" class="hidden space-y-1.5">
+                <input id="ig-input-sessionid" type="password" placeholder="Paste Instagram 'sessionid' cookie value" 
+                  class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-pink-500 font-mono" />
+                <p class="text-[10px] text-slate-400 leading-tight">
+                  <span class="text-pink-400 font-semibold">Kaise nikalein:</span> Instagram.com par login karein &bull; Press F12 &bull; Application tab &bull; Cookies &bull; 'sessionid' copy karke yahan paste karein.
+                </p>
+              </div>
+
               <button onclick="handleInstagramConnect()" id="btn-ig-connect"
-                class="w-full py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold rounded-lg text-xs transition shadow flex items-center justify-center gap-1.5">
+                class="w-full py-2 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold rounded-lg text-xs transition shadow flex items-center justify-center gap-1.5">
                 <i data-lucide="log-in" class="w-3.5 h-3.5"></i> Connect Instagram
               </button>
             </div>

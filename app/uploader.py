@@ -84,6 +84,37 @@ def record_upload(platform: str, filename: str, status: str, url: Optional[str] 
 
 # ----------------- Instagram Integration -----------------
 
+def _patch_instagrapi_publickeys():
+    """
+    Patches instagrapi's password_publickeys to fetch keys from accounts/login instead
+    of deprecated qe/sync, fixing 'int() argument must be a string... not NoneType'.
+    """
+    try:
+        from instagrapi import Client
+
+        def patched_password_publickeys(self):
+            try:
+                resp = self.public.get("https://i.instagram.com/api/v1/accounts/login/")
+                key_id = resp.headers.get("ig-set-password-encryption-key-id")
+                pub_key = resp.headers.get("ig-set-password-encryption-pub-key")
+                if key_id and pub_key:
+                    return int(key_id), pub_key
+            except Exception:
+                pass
+
+            resp = self.public.get("https://i.instagram.com/api/v1/qe/sync/")
+            key_id = resp.headers.get("ig-set-password-encryption-key-id")
+            pub_key = resp.headers.get("ig-set-password-encryption-pub-key")
+            if not key_id or not pub_key:
+                raise RuntimeError("Instagram public encryption keys unavailable. Please use Session ID login.")
+            return int(key_id), pub_key
+
+        Client.password_publickeys = patched_password_publickeys
+    except Exception as e:
+        print(f"[Instagram] Warning applying patch: {e}")
+
+_patch_instagrapi_publickeys()
+
 def get_instagram_client():
     from instagrapi import Client
     cl = Client()
@@ -95,12 +126,45 @@ def get_instagram_client():
             print(f"[Instagram] Warning loading session: {e}")
     return cl
 
-def configure_instagram(username: str, password: Optional[str] = None, auto_upload: Optional[bool] = None) -> Dict[str, Any]:
-    username = username.strip()
+def configure_instagram(
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    session_id: Optional[str] = None,
+    auto_upload: Optional[bool] = None
+) -> Dict[str, Any]:
     settings = get_social_settings()
     
     if auto_upload is not None:
         settings["instagram"]["auto_upload"] = bool(auto_upload)
+
+    from instagrapi import Client
+    cl = Client()
+    cl.delay_range = [1, 3]
+
+    # Mode 1: Connect via Instagram Session ID (Fastest, zero blocks, bypasses 2FA/app version issues)
+    if session_id and session_id.strip():
+        sid = session_id.strip()
+        try:
+            cl.login_by_sessionid(sid)
+            cl.dump_settings(str(IG_SESSION_PATH))
+            detected_user = cl.username or username or "instagram_user"
+            settings["instagram"]["username"] = detected_user
+            settings["instagram"]["is_connected"] = True
+            settings["instagram"]["last_login"] = time.strftime("%Y-%m-%d %I:%M:%S %p")
+            save_social_settings(settings)
+            return {
+                "success": True,
+                "message": f"Successfully connected Instagram @{detected_user} via Session ID!",
+                "username": detected_user
+            }
+        except Exception as e:
+            return {"success": False, "error": f"Session ID invalid or expired: {str(e)}"}
+
+    # Mode 2: Username & Password
+    if not username:
+        return {"success": False, "error": "Username or Session ID is required."}
+
+    username = username.strip().lstrip("@")
 
     if not password and IG_SESSION_PATH.exists() and settings["instagram"].get("username") == username:
         # Just updating auto_upload or checking existing session
@@ -108,15 +172,20 @@ def configure_instagram(username: str, password: Optional[str] = None, auto_uplo
         return {"success": True, "message": f"Instagram session active for @{username}", "username": username}
 
     if not password:
-        return {"success": False, "error": "Password required to authenticate with Instagram."}
-
-    from instagrapi import Client
-    cl = Client()
-    cl.delay_range = [1, 3]
+        return {"success": False, "error": "Password or Session ID required to authenticate with Instagram."}
 
     try:
         # Attempt login
-        logged_in = cl.login(username, password)
+        logged_in = False
+        try:
+            logged_in = cl.login(username, password)
+        except Exception as e_caa:
+            print(f"[Instagram] CAA login fallback: {e_caa}")
+            try:
+                logged_in = cl.login_legacy(username, password)
+            except Exception:
+                raise e_caa
+
         if logged_in:
             cl.dump_settings(str(IG_SESSION_PATH))
             settings["instagram"]["username"] = username
@@ -125,13 +194,15 @@ def configure_instagram(username: str, password: Optional[str] = None, auto_uplo
             save_social_settings(settings)
             return {"success": True, "message": f"Successfully connected Instagram @{username}!", "username": username}
         else:
-            return {"success": False, "error": "Login failed. Please check your username and password."}
+            return {"success": False, "error": "Login failed. Please check your username and password or use Session ID."}
     except Exception as e:
         err_msg = str(e)
         if "challenge_required" in err_msg.lower():
-            err_msg = "Instagram checkpoint/challenge triggered. Please open the Instagram app on your phone to approve the login, then retry."
+            err_msg = "Instagram checkpoint triggered. Please open the Instagram app on your phone to approve the login, or use the Session ID option."
         elif "bad_password" in err_msg.lower():
             err_msg = "Incorrect Instagram password."
+        elif "out of date" in err_msg.lower():
+            err_msg = "Instagram blocked mobile password login ('App out of date'). Please use the 'Session ID' tab — it connects in 10 seconds without password blocks!"
         return {"success": False, "error": err_msg}
 
 def disconnect_instagram() -> Dict[str, Any]:

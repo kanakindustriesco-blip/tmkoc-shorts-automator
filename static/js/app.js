@@ -555,14 +555,50 @@ async function fetchSocialSettings() {
   }
 }
 
-async function handleInstagramConnect() {
-  const username = document.getElementById("ig-input-username").value.trim();
-  const password = document.getElementById("ig-input-password").value;
-  const btn = document.getElementById("btn-ig-connect");
+let currentIgMode = "creds";
 
-  if (!username || !password) {
-    alert("Please enter Instagram username and password.");
-    return;
+function setIgLoginMode(mode) {
+  currentIgMode = mode;
+  const tabCreds = document.getElementById("tab-ig-creds");
+  const tabSession = document.getElementById("tab-ig-session");
+  const fieldsCreds = document.getElementById("ig-fields-creds");
+  const fieldsSession = document.getElementById("ig-fields-session");
+
+  if (!tabCreds || !tabSession) return;
+
+  if (mode === "session") {
+    tabSession.className = "flex-1 py-1 rounded-md bg-pink-600 text-white transition";
+    tabCreds.className = "flex-1 py-1 rounded-md text-slate-400 hover:text-white transition";
+    if (fieldsCreds) fieldsCreds.classList.add("hidden");
+    if (fieldsSession) fieldsSession.classList.remove("hidden");
+  } else {
+    tabCreds.className = "flex-1 py-1 rounded-md bg-pink-600 text-white transition";
+    tabSession.className = "flex-1 py-1 rounded-md text-slate-400 hover:text-white transition";
+    if (fieldsCreds) fieldsCreds.classList.remove("hidden");
+    if (fieldsSession) fieldsSession.classList.add("hidden");
+  }
+}
+
+async function handleInstagramConnect() {
+  const btn = document.getElementById("btn-ig-connect");
+  let payload = {};
+
+  if (currentIgMode === "session") {
+    const sessionId = document.getElementById("ig-input-sessionid").value.trim();
+    if (!sessionId) {
+      alert("Please paste your Instagram 'sessionid' cookie value.");
+      return;
+    }
+    payload.session_id = sessionId;
+  } else {
+    const username = document.getElementById("ig-input-username").value.trim();
+    const password = document.getElementById("ig-input-password").value;
+    if (!username || !password) {
+      alert("Please enter Instagram username and password (ya Session ID tab use karein).");
+      return;
+    }
+    payload.username = username;
+    payload.password = password;
   }
 
   const originalText = btn.innerHTML;
@@ -573,16 +609,22 @@ async function handleInstagramConnect() {
     const res = await fetch("/api/social/instagram/connect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Connection failed");
 
     showToast("Instagram connected successfully!");
-    document.getElementById("ig-input-password").value = "";
+    if (document.getElementById("ig-input-password")) document.getElementById("ig-input-password").value = "";
+    if (document.getElementById("ig-input-sessionid")) document.getElementById("ig-input-sessionid").value = "";
     fetchSocialSettings();
   } catch (e) {
     alert("Instagram Error: " + e.message);
+  } finally {
+    btn.innerHTML = originalText;
+    if (window.lucide) lucide.createIcons();
+  }
+}
   } finally {
     btn.innerHTML = originalText;
     if (window.lucide) lucide.createIcons();

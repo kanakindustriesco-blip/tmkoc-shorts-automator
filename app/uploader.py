@@ -22,7 +22,7 @@ def load_raw_social_settings() -> Dict[str, Any]:
     default_settings = {
         "instagram": {
             "username": "tmkoc.925781",
-            "password": "KANAK$2580a",
+            "password": "",
             "is_connected": True,
             "auto_upload": False,
             "last_login": time.strftime("%Y-%m-%d %I:%M %p"),

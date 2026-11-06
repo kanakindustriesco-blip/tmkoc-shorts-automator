@@ -29,11 +29,27 @@ from app.template_engine import generate_part_overlay, generate_part_thumbnail
 # Global registry
 JOBS: Dict[str, Dict[str, Any]] = {}
 WATCHER_ENABLED = True
+PROCESSED_WATCHER_FILES: set = set()
 
 # Number of parallel video rendering threads (uses 3-4 workers for 8 CPU cores)
 MAX_PARALLEL_WORKERS = 3
 
+def resolve_video_path(path_str: str) -> str:
+    p = Path(path_str)
+    if p.exists():
+        return str(p)
+    # Check in processed
+    in_proc = PROCESSED_RAW_DIR / p.name
+    if in_proc.exists():
+        return str(in_proc)
+    # Check in raw
+    in_raw = RAW_VIDEOS_DIR / p.name
+    if in_raw.exists():
+        return str(in_raw)
+    return str(p)
+
 def get_video_info(video_path: str) -> Dict[str, Any]:
+    video_path = resolve_video_path(video_path)
     cmd = [
         "ffprobe",
         "-v", "quiet",
@@ -65,6 +81,7 @@ def get_video_info(video_path: str) -> Dict[str, Any]:
         return {"duration": 0, "width": 1920, "height": 1080, "has_audio": True}
 
 def extract_sample_frame(video_path: str, timestamp: float = 15.0, output_path: str = None) -> str:
+    video_path = resolve_video_path(video_path)
     if not output_path:
         output_path = str(Path(video_path).parent / "sample_frame.jpg")
     cmd = [
@@ -115,6 +132,7 @@ def render_single_clip(
     """
     Turbo render with ultrafast x264 preset and multi-threading.
     """
+    video_path = resolve_video_path(video_path)
     filter_complex = build_ffmpeg_filter(use_blurred_bg=use_blurred_bg)
 
     cmd = [
@@ -161,7 +179,7 @@ def _render_part_task(task_data: dict) -> Optional[dict]:
     """
     Worker task executed in parallel thread pool.
     """
-    video_path = task_data["video_path"]
+    video_path = resolve_video_path(task_data["video_path"])
     overlay_path = task_data["overlay_path"]
     start_time = task_data["start_time"]
     duration = task_data["duration"]
@@ -235,6 +253,7 @@ def process_episode_into_shorts(
     """
     Parallel multi-threaded worker that slices episode into 30s clips at blazing speed.
     """
+    video_path = resolve_video_path(video_path)
     job = JOBS[job_id]
     job["status"] = "processing"
     job["start_time"] = time.time()
@@ -382,14 +401,14 @@ def start_processing_job(
 
 # --- High-Frequency Watch Folder Worker ---
 def watch_folder_worker():
-    processed_files = set()
+    global PROCESSED_WATCHER_FILES
     while WATCHER_ENABLED:
         try:
             for ext in ["*.mp4", "*.mkv", "*.mov", "*.avi"]:
                 for file_path in RAW_VIDEOS_DIR.glob(ext):
                     if file_path.name.startswith("processed_"):
                         continue
-                    if file_path in processed_files:
+                    if file_path.name in PROCESSED_WATCHER_FILES:
                         continue
 
                     # Instant size stability check (0.6s)
@@ -400,7 +419,7 @@ def watch_folder_worker():
                         continue
 
                     print(f"[Watch Folder] Instant trigger: {file_path.name}")
-                    processed_files.add(file_path)
+                    PROCESSED_WATCHER_FILES.add(file_path.name)
 
                     ep_num = parse_episode_number(file_path.name)
                     print(f"[Watch Folder] Blazing fast render started for Episode #{ep_num}...")

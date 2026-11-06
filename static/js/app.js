@@ -675,21 +675,20 @@ async function handleYouTubeSecretsFile(event) {
 async function handleYouTubeConnect() {
   const btn = document.getElementById("btn-yt-connect");
   const originalText = btn.innerHTML;
-  btn.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Authorizing Google Account...`;
+  btn.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Opening Google Sign-in...`;
   if (window.lucide) lucide.createIcons();
 
-  showToast("Opening Google Authorization in your browser...");
+  showToast("Opening Google Sign-in...");
 
   try {
-    const res = await fetch("/api/social/youtube/connect", { method: "POST" });
+    const res = await fetch("/api/social/youtube/auth-url");
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Authorization failed");
+    if (!res.ok || !data.auth_url) throw new Error(data.detail || "Authorization URL generation failed");
 
-    showToast("YouTube Channel connected!");
-    fetchSocialSettings();
+    // Redirect to Google OAuth consent page
+    window.location.href = data.auth_url;
   } catch (e) {
     alert("YouTube Error: " + e.message);
-  } finally {
     btn.innerHTML = originalText;
     if (window.lucide) lucide.createIcons();
   }

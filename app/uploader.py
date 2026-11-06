@@ -285,28 +285,49 @@ def configure_youtube_secrets(secrets_json_str: str) -> Dict[str, Any]:
     except Exception as e:
         return {"success": False, "error": f"Failed to parse JSON: {str(e)}"}
 
-def authenticate_youtube() -> Dict[str, Any]:
+def get_youtube_auth_url() -> Dict[str, Any]:
     if not YT_SECRETS_PATH.exists():
-        return {"success": False, "error": "client_secrets.json not found. Please upload it first."}
+        return {"success": False, "error": "client_secrets.json not found."}
 
     from google_auth_oauthlib.flow import InstalledAppFlow
-
     SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
     try:
-        flow = InstalledAppFlow.from_client_secrets_file(str(YT_SECRETS_PATH), SCOPES)
-        # This opens the default browser for 1-click Google account approval
-        credentials = flow.run_local_server(port=0, prompt='consent')
-        
+        flow = InstalledAppFlow.from_client_secrets_file(
+            str(YT_SECRETS_PATH),
+            scopes=SCOPES,
+            redirect_uri="http://localhost:8000/api/social/youtube/oauth-callback"
+        )
+        auth_url, state = flow.authorization_url(prompt='consent', access_type='offline')
+        return {"success": True, "auth_url": auth_url}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to generate Google Auth URL: {str(e)}"}
+
+def handle_youtube_oauth_code(code: str) -> Dict[str, Any]:
+    if not YT_SECRETS_PATH.exists():
+        return {"success": False, "error": "client_secrets.json missing."}
+
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
+    try:
+        flow = InstalledAppFlow.from_client_secrets_file(
+            str(YT_SECRETS_PATH),
+            scopes=SCOPES,
+            redirect_uri="http://localhost:8000/api/social/youtube/oauth-callback"
+        )
+        flow.fetch_token(code=code)
+        credentials = flow.credentials
         with open(YT_TOKEN_PATH, 'wb') as f:
             pickle.dump(credentials, f)
 
-        settings = get_social_settings()
+        settings = load_raw_social_settings()
         settings["youtube"]["is_connected"] = True
         save_social_settings(settings)
-
-        return {"success": True, "message": "YouTube channel connected successfully!"}
+        return {"success": True, "message": "YouTube connected successfully!"}
     except Exception as e:
-        return {"success": False, "error": f"YouTube authorization failed: {str(e)}"}
+        return {"success": False, "error": f"Failed to exchange token: {str(e)}"}
+
+def authenticate_youtube() -> Dict[str, Any]:
+    return get_youtube_auth_url()
 
 def disconnect_youtube() -> Dict[str, Any]:
     if YT_TOKEN_PATH.exists():

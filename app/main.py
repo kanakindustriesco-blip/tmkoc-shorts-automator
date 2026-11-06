@@ -34,7 +34,9 @@ from app.processor import (
     extract_sample_frame,
     start_processing_job,
     start_folder_watcher,
-    parse_episode_number
+    parse_episode_number,
+    resolve_video_path,
+    PROCESSED_WATCHER_FILES
 )
 from app.template_engine import (
     generate_preview_mockup,
@@ -49,6 +51,8 @@ from app.uploader import (
     disconnect_instagram,
     configure_youtube_secrets,
     authenticate_youtube,
+    get_youtube_auth_url,
+    handle_youtube_oauth_code,
     disconnect_youtube,
     publish_to_instagram,
     publish_to_youtube_shorts,
@@ -173,7 +177,8 @@ async def upload_raw_video(file: UploadFile = File(...)):
     """
     Dedicated Raw Video Drop: Saves file and immediately triggers the full automated pipeline!
     """
-    dest = RAW_VIDEOS_DIR / file.filename
+    PROCESSED_WATCHER_FILES.add(file.filename)
+    dest = PROCESSED_RAW_DIR / file.filename
     with open(dest, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
@@ -221,11 +226,12 @@ async def get_folder_paths():
 
 @app.post("/api/start-process")
 async def start_process(req: ProcessRequest):
-    if not os.path.exists(req.video_path):
+    actual_path = resolve_video_path(req.video_path)
+    if not os.path.exists(actual_path):
         raise HTTPException(status_code=400, detail="Video file not found.")
 
     job_id = start_processing_job(
-        video_path=req.video_path,
+        video_path=actual_path,
         episode_num=req.episode_num,
         template_path=req.template_path,
         clip_duration=req.clip_duration,
@@ -364,12 +370,40 @@ async def upload_youtube_secrets(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=res.get("error", "Invalid client_secrets.json"))
     return res
 
+@app.get("/api/social/youtube/auth-url")
 @app.post("/api/social/youtube/connect")
 async def connect_youtube_account():
-    res = authenticate_youtube()
+    res = get_youtube_auth_url()
     if not res.get("success"):
-        raise HTTPException(status_code=400, detail=res.get("error", "YouTube OAuth failed."))
+        raise HTTPException(status_code=400, detail=res.get("error", "Failed to generate YouTube Auth URL."))
     return res
+
+@app.get("/api/social/youtube/oauth-callback", response_class=HTMLResponse)
+async def youtube_oauth_callback(code: Optional[str] = None, error: Optional[str] = None):
+    if error or not code:
+        return HTMLResponse(f"<h3>YouTube Authorization Failed: {error or 'No code returned'}</h3><br><a href='/'>Go back to Dashboard</a>")
+    
+    res = handle_youtube_oauth_code(code)
+    if res.get("success"):
+        return HTMLResponse("""
+            <!DOCTYPE html>
+            <html>
+            <head><title>YouTube Connected</title></head>
+            <body style="font-family: sans-serif; background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+                <div style="background: #1e293b; padding: 35px; border-radius: 20px; border: 1px solid #334155; text-align: center; max-width: 420px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);">
+                    <div style="font-size: 45px; margin-bottom: 12px;">🎉</div>
+                    <h2 style="color: #4ade80; margin: 0 0 10px 0; font-size: 22px;">YouTube Channel Connected!</h2>
+                    <p style="color: #94a3b8; font-size: 13px; line-height: 1.5; margin-bottom: 25px;">Aapka YouTube channel TMKOC Shorts Automator ke sath successfully link ho gaya hai. Auto-upload ready hai!</p>
+                    <a href="/" style="background: #ef4444; color: white; text-decoration: none; padding: 12px 24px; border-radius: 12px; font-weight: bold; font-size: 14px; display: inline-block;">Return to Dashboard</a>
+                </div>
+                <script>
+                    setTimeout(function() { window.location.href = '/'; }, 2200);
+                </script>
+            </body>
+            </html>
+        """)
+    else:
+        return HTMLResponse(f"<h3>Error linking YouTube: {res.get('error')}</h3><br><a href='/'>Back to Dashboard</a>")
 
 @app.post("/api/social/youtube/disconnect")
 async def disconnect_youtube_account():

@@ -532,7 +532,7 @@ async function fetchSocialSettings() {
       }
     } else {
       if (ytBadge) {
-        ytBadge.textContent = data.youtube && data.youtube.has_secrets ? "Ready to Connect" : "Disconnected";
+        ytBadge.textContent = data.youtube && data.youtube.has_secrets ? "Ready to Connect ⚡" : "Disconnected";
         ytBadge.className = data.youtube && data.youtube.has_secrets 
           ? "px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30"
           : "px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400";
@@ -540,7 +540,9 @@ async function fetchSocialSettings() {
       if (ytForm) ytForm.classList.remove("hidden");
       if (ytConnectedBox) ytConnectedBox.classList.add("hidden");
       if (ytSecretsStatus) {
-        ytSecretsStatus.textContent = data.youtube && data.youtube.has_secrets ? "✓ client_secrets.json loaded" : "Upload client_secrets.json from Google Cloud";
+        ytSecretsStatus.innerHTML = data.youtube && data.youtube.has_secrets 
+          ? "<span class='text-emerald-400 font-bold'>✓ client_secrets.json automatically loaded from Downloads!</span>" 
+          : "Upload client_secrets.json from Google Cloud";
       }
     }
   } catch (e) {

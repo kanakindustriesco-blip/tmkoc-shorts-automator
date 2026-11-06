@@ -620,11 +620,6 @@ async function handleInstagramConnect() {
     if (window.lucide) lucide.createIcons();
   }
 }
-  } finally {
-    btn.innerHTML = originalText;
-    if (window.lucide) lucide.createIcons();
-  }
-}
 
 async function handleInstagramDisconnect() {
   if (!confirm("Are you sure you want to disconnect Instagram?")) return;

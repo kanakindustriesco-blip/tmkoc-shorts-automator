@@ -379,11 +379,15 @@ async def connect_youtube_account():
     return res
 
 @app.get("/api/social/youtube/oauth-callback", response_class=HTMLResponse)
-async def youtube_oauth_callback(code: Optional[str] = None, error: Optional[str] = None):
+async def youtube_oauth_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None
+):
     if error or not code:
         return HTMLResponse(f"<h3>YouTube Authorization Failed: {error or 'No code returned'}</h3><br><a href='/'>Go back to Dashboard</a>")
     
-    res = handle_youtube_oauth_code(code)
+    res = handle_youtube_oauth_code(code=code, state=state)
     if res.get("success"):
         return HTMLResponse("""
             <!DOCTYPE html>

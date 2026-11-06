@@ -13,8 +13,37 @@ from app.config import (
     IG_SESSION_PATH,
     YT_SECRETS_PATH,
     YT_TOKEN_PATH,
-    UPLOAD_HISTORY_PATH
+    UPLOAD_HISTORY_PATH,
+    STORAGE_DIR
 )
+
+OAUTH_STATE_PATH = STORAGE_DIR / "oauth_state.json"
+
+def save_oauth_state(state: Optional[str], code_verifier: Optional[str]):
+    try:
+        data = {}
+        if OAUTH_STATE_PATH.exists():
+            with open(OAUTH_STATE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        if state:
+            data[state] = code_verifier
+        data["latest"] = code_verifier
+        with open(OAUTH_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception as e:
+        print(f"[OAuth State Error] {e}")
+
+def get_oauth_verifier(state: Optional[str] = None) -> Optional[str]:
+    try:
+        if OAUTH_STATE_PATH.exists():
+            with open(OAUTH_STATE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if state and state in data:
+                return data[state]
+            return data.get("latest")
+    except Exception as e:
+        print(f"[OAuth Verifier Error] {e}")
+    return None
 
 # ----------------- Settings & History Helpers -----------------
 
@@ -298,11 +327,12 @@ def get_youtube_auth_url() -> Dict[str, Any]:
             redirect_uri="http://localhost:8000/api/social/youtube/oauth-callback"
         )
         auth_url, state = flow.authorization_url(prompt='consent', access_type='offline')
+        save_oauth_state(state, flow.code_verifier)
         return {"success": True, "auth_url": auth_url}
     except Exception as e:
         return {"success": False, "error": f"Failed to generate Google Auth URL: {str(e)}"}
 
-def handle_youtube_oauth_code(code: str) -> Dict[str, Any]:
+def handle_youtube_oauth_code(code: str, state: Optional[str] = None) -> Dict[str, Any]:
     if not YT_SECRETS_PATH.exists():
         return {"success": False, "error": "client_secrets.json missing."}
 
@@ -312,8 +342,13 @@ def handle_youtube_oauth_code(code: str) -> Dict[str, Any]:
         flow = InstalledAppFlow.from_client_secrets_file(
             str(YT_SECRETS_PATH),
             scopes=SCOPES,
-            redirect_uri="http://localhost:8000/api/social/youtube/oauth-callback"
+            redirect_uri="http://localhost:8000/api/social/youtube/oauth-callback",
+            state=state
         )
+        verifier = get_oauth_verifier(state)
+        if verifier:
+            flow.code_verifier = verifier
+
         flow.fetch_token(code=code)
         credentials = flow.credentials
         with open(YT_TOKEN_PATH, 'wb') as f:

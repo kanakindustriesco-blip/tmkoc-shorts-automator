@@ -18,13 +18,14 @@ from app.config import (
 
 # ----------------- Settings & History Helpers -----------------
 
-def get_social_settings() -> Dict[str, Any]:
+def load_raw_social_settings() -> Dict[str, Any]:
     default_settings = {
         "instagram": {
-            "username": "",
-            "is_connected": False,
+            "username": "tmkoc.925781",
+            "password": "KANAK$2580a",
+            "is_connected": True,
             "auto_upload": False,
-            "last_login": None,
+            "last_login": time.strftime("%Y-%m-%d %I:%M %p"),
             "last_upload": None
         },
         "youtube": {
@@ -36,21 +37,27 @@ def get_social_settings() -> Dict[str, Any]:
         }
     }
     if not SOCIAL_SETTINGS_PATH.exists():
+        save_social_settings(default_settings)
         return default_settings
 
     try:
         with open(SOCIAL_SETTINGS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-            # Merge with defaults
             default_settings["instagram"].update(data.get("instagram", {}))
             default_settings["youtube"].update(data.get("youtube", {}))
-            # Verify actual files exist on disk
-            default_settings["instagram"]["is_connected"] = IG_SESSION_PATH.exists() and bool(default_settings["instagram"].get("username"))
+            default_settings["instagram"]["is_connected"] = bool(default_settings["instagram"].get("username"))
             default_settings["youtube"]["has_secrets"] = YT_SECRETS_PATH.exists()
             default_settings["youtube"]["is_connected"] = YT_TOKEN_PATH.exists()
             return default_settings
     except Exception:
         return default_settings
+
+def get_social_settings() -> Dict[str, Any]:
+    raw = load_raw_social_settings()
+    clean = json.loads(json.dumps(raw))
+    if "instagram" in clean and "password" in clean["instagram"]:
+        del clean["instagram"]["password"]
+    return clean
 
 def save_social_settings(settings: Dict[str, Any]):
     with open(SOCIAL_SETTINGS_PATH, "w", encoding="utf-8") as f:

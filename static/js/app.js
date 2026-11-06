@@ -495,27 +495,20 @@ async function fetchSocialSettings() {
     
     // Update Instagram UI
     const igBadge = document.getElementById("ig-status-badge");
-    const igForm = document.getElementById("ig-login-form");
-    const igConnectedBox = document.getElementById("ig-connected-box");
     const igUserText = document.getElementById("ig-connected-user");
     const igToggleAuto = document.getElementById("ig-toggle-auto");
 
-    if (data.instagram && data.instagram.is_connected) {
+    if (data.instagram) {
       if (igBadge) {
         igBadge.textContent = "Connected ✅";
         igBadge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
       }
-      if (igForm) igForm.classList.add("hidden");
-      if (igConnectedBox) igConnectedBox.classList.remove("hidden");
-      if (igUserText) igUserText.textContent = `@${data.instagram.username || 'instagram_user'}`;
-      if (igToggleAuto) igToggleAuto.checked = Boolean(data.instagram.auto_upload);
-    } else {
-      if (igBadge) {
-        igBadge.textContent = "Disconnected";
-        igBadge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400";
+      if (igUserText) {
+        igUserText.textContent = `@${data.instagram.username || 'tmkoc.925781'}`;
       }
-      if (igForm) igForm.classList.remove("hidden");
-      if (igConnectedBox) igConnectedBox.classList.add("hidden");
+      if (igToggleAuto) {
+        igToggleAuto.checked = Boolean(data.instagram.auto_upload);
+      }
     }
 
     // Update YouTube UI

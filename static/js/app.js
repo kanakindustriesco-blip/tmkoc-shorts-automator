@@ -497,8 +497,10 @@ async function fetchSocialSettings() {
     const igBadge = document.getElementById("ig-status-badge");
     const igUserText = document.getElementById("ig-connected-user");
     const igToggleAuto = document.getElementById("ig-toggle-auto");
+    const igDisconnectedBox = document.getElementById("ig-disconnected-box");
+    const igConnectedBox = document.getElementById("ig-connected-box");
 
-    if (data.instagram) {
+    if (data.instagram && data.instagram.is_connected) {
       if (igBadge) {
         igBadge.textContent = "Connected ✅";
         igBadge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
@@ -509,6 +511,15 @@ async function fetchSocialSettings() {
       if (igToggleAuto) {
         igToggleAuto.checked = Boolean(data.instagram.auto_upload);
       }
+      if (igDisconnectedBox) igDisconnectedBox.classList.add("hidden");
+      if (igConnectedBox) igConnectedBox.classList.remove("hidden");
+    } else {
+      if (igBadge) {
+        igBadge.textContent = "Disconnected";
+        igBadge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400";
+      }
+      if (igDisconnectedBox) igDisconnectedBox.classList.remove("hidden");
+      if (igConnectedBox) igConnectedBox.classList.add("hidden");
     }
 
     // Update YouTube UI
@@ -571,6 +582,38 @@ function setIgLoginMode(mode) {
     tabSession.className = "flex-1 py-1 rounded-md text-slate-400 hover:text-white transition";
     if (fieldsCreds) fieldsCreds.classList.remove("hidden");
     if (fieldsSession) fieldsSession.classList.add("hidden");
+  }
+}
+
+async function handleInstagramSessionConnect() {
+  const input = document.getElementById("ig-session-id");
+  const sid = input ? input.value.trim() : "";
+  if (!sid) {
+    alert("Please paste your Instagram 'sessionid' cookie value.");
+    return;
+  }
+  const btn = document.getElementById("btn-ig-connect");
+  const originalText = btn.innerHTML;
+  btn.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i>`;
+  if (window.lucide) lucide.createIcons();
+
+  try {
+    const res = await fetch("/api/social/instagram/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sid })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Connection failed");
+
+    showToast("Instagram connected successfully!");
+    if (input) input.value = "";
+    fetchSocialSettings();
+  } catch (e) {
+    alert("Instagram Error: " + e.message);
+  } finally {
+    btn.innerHTML = originalText;
+    if (window.lucide) lucide.createIcons();
   }
 }
 

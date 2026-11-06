@@ -74,7 +74,7 @@ def load_raw_social_settings() -> Dict[str, Any]:
             data = json.load(f)
             default_settings["instagram"].update(data.get("instagram", {}))
             default_settings["youtube"].update(data.get("youtube", {}))
-            default_settings["instagram"]["is_connected"] = bool(default_settings["instagram"].get("username"))
+            default_settings["instagram"]["is_connected"] = IG_SESSION_PATH.exists()
             default_settings["youtube"]["has_secrets"] = YT_SECRETS_PATH.exists()
             default_settings["youtube"]["is_connected"] = YT_TOKEN_PATH.exists()
             return default_settings

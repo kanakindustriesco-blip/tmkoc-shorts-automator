@@ -218,35 +218,55 @@
                 </div>
                 <span class="font-bold text-xs text-slate-200">Instagram Reels</span>
               </div>
-              <span id="ig-status-badge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                Connected ✅
+              <span id="ig-status-badge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400">
+                Disconnected
               </span>
             </div>
 
-            <!-- Instagram Info Box -->
-            <div class="p-3 bg-pink-500/10 border border-pink-500/20 rounded-xl flex items-center justify-between">
-              <div class="flex items-center gap-2.5">
-                <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-pink-600 to-purple-600 flex items-center justify-center text-white font-black text-xs shadow">
-                  👓
+            <!-- Instagram Disconnected: Session ID Setup -->
+            <div id="ig-disconnected-box" class="space-y-2">
+              <div class="p-2.5 bg-pink-500/10 border border-pink-500/20 rounded-lg text-xs space-y-1">
+                <p class="font-bold text-pink-300">Instagram 1-Time Session ID Connect</p>
+                <p class="text-[10px] text-slate-400 leading-relaxed">
+                  Meta security direct password login block karta hai. Chrome me <b class="text-slate-300">instagram.com</b> khol kar <b>F12 &rarr; Application &rarr; Cookies &rarr; sessionid</b> copy karein.
+                </p>
+              </div>
+              <div class="flex gap-1.5">
+                <input id="ig-session-id" type="password" placeholder="Paste sessionid here..."
+                  class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-pink-500" />
+                <button onclick="handleInstagramSessionConnect()" id="btn-ig-connect"
+                  class="px-3 py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold rounded-lg text-xs transition shadow flex items-center gap-1">
+                  Connect
+                </button>
+              </div>
+            </div>
+
+            <!-- Instagram Connected Info -->
+            <div id="ig-connected-box" class="hidden space-y-2.5">
+              <div class="p-3 bg-pink-500/10 border border-pink-500/20 rounded-xl flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-pink-600 to-purple-600 flex items-center justify-center text-white font-black text-xs shadow">
+                    👓
+                  </div>
+                  <div>
+                    <p id="ig-connected-user" class="text-xs font-black text-pink-300">@tmkoc.925781</p>
+                    <p class="text-[10px] text-emerald-400 font-semibold">Active Session &bull; Auto-Upload Ready</p>
+                  </div>
                 </div>
+                <button onclick="handleInstagramDisconnect()" class="text-[10px] px-2 py-1 bg-slate-800 hover:bg-red-500/20 text-red-400 rounded transition border border-slate-700">
+                  Disconnect
+                </button>
+              </div>
+
+              <!-- IG Auto Upload Switch -->
+              <label class="flex items-center justify-between cursor-pointer p-2.5 bg-slate-900 rounded-xl border border-slate-800 hover:border-pink-500/30 transition">
                 <div>
-                  <p id="ig-connected-user" class="text-xs font-black text-pink-300">@tmkoc.925781</p>
-                  <p class="text-[10px] text-slate-400">Account Credentials Configured & Ready</p>
+                  <span class="text-xs text-slate-200 font-bold block">Auto-Post Reels on Schedule</span>
+                  <span class="text-[10px] text-slate-400">Clips scheduled release ke sath auto-upload hongi</span>
                 </div>
-              </div>
-              <span class="text-[10px] px-2 py-0.5 bg-slate-900 text-emerald-400 rounded-md font-bold border border-slate-800">
-                Active
-              </span>
+                <input id="ig-toggle-auto" type="checkbox" onchange="toggleInstagramAuto(this)" class="w-4 h-4 text-pink-600 rounded bg-slate-800 border-slate-700 focus:ring-0 cursor-pointer" />
+              </label>
             </div>
-
-            <!-- IG Auto Upload Switch -->
-            <label class="flex items-center justify-between cursor-pointer p-2.5 bg-slate-900 rounded-xl border border-slate-800 hover:border-pink-500/30 transition">
-              <div>
-                <span class="text-xs text-slate-200 font-bold block">Auto-Post Reels on Schedule</span>
-                <span class="text-[10px] text-slate-400">Clips scheduled release ke sath auto-upload hongi</span>
-              </div>
-              <input id="ig-toggle-auto" type="checkbox" onchange="toggleInstagramAuto(this)" class="w-4 h-4 text-pink-600 rounded bg-slate-800 border-slate-700 focus:ring-0 cursor-pointer" />
-            </label>
           </div>
 
           <!-- YouTube Box -->
@@ -582,6 +602,6 @@
     <span id="toast-message">Caption Copied!</span>
   </div>
 
-  <script src="/static/js/app.js?v=2.2"></script>
+  <script src="/static/js/app.js?v=2.3"></script>
 </body>
 </html>

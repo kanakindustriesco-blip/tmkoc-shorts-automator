@@ -481,6 +481,20 @@ def start_processing_job(
     thread.start()
     return job_id
 
+def get_current_active_job() -> Optional[Dict[str, Any]]:
+    """
+    Returns the currently active slicing job (processing or queued),
+    or the most recently completed job if within 15 minutes.
+    """
+    for j in reversed(list(JOBS.values())):
+        if j.get("status") in ("processing", "queued"):
+            return j
+    if JOBS:
+        latest = list(JOBS.values())[-1]
+        if time.time() - latest.get("created_at", 0) < 900:
+            return latest
+    return None
+
 # --- High-Frequency Watch Folder Worker ---
 def watch_folder_worker():
     global PROCESSED_WATCHER_FILES

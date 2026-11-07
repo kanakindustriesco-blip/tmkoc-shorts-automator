@@ -15,6 +15,7 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchSocialSettings();
   fetchClipsList();
   fetchSchedulerStatus();
+  checkActiveJob();
   schedulerTimer = setInterval(fetchSchedulerStatus, 4000);
 });
 
@@ -305,26 +306,142 @@ async function startGeneration() {
   }
 }
 
+// --- Check & Restore Active Job on Page Reload ---
+async function checkActiveJob() {
+  try {
+    const res = await fetch("/api/active-job");
+    const data = await res.json();
+    if (data.has_active && data.job) {
+      const job = data.job;
+      activeJobId = job.job_id;
+      const progressBox = document.getElementById("progress-box");
+      if (progressBox) progressBox.classList.remove("hidden");
+
+      const pct = job.progress || 0;
+      const pctEl = document.getElementById("progress-pct");
+      const barEl = document.getElementById("progress-bar-fill");
+      const partEl = document.getElementById("progress-part-status");
+
+      if (pctEl) pctEl.textContent = `${Math.round(pct)}% (TURBO)`;
+      if (barEl) barEl.style.width = `${pct}%`;
+
+      if (partEl && job.total_parts) {
+        partEl.textContent = `⚡ Parallel Multi-Core Rendering: ${job.clips ? job.clips.length : 0} of ${job.total_parts} finished`;
+      }
+
+      if (job.status === "processing" || job.status === "queued") {
+        pollJobStatus(job.job_id, job.created_at);
+      } else if (job.status === "completed") {
+        if (pctEl) pctEl.textContent = `100% Done!`;
+        if (partEl) partEl.textContent = `⚡ Slicing Completed (${job.clips ? job.clips.length : 0} clips ready)`;
+      }
+    }
+  } catch (err) {
+    console.error("checkActiveJob error:", err);
+  }
+}
+
+// Helpers for Error Formatting & Display
+function cleanUploadError(err) {
+  if (!err) return "Unknown error occurred.";
+  const str = String(err);
+  if (str.includes("login_required")) {
+    return "Instagram session expired or login required (HTTP 403). Enter your Session ID in the Instagram settings box above.";
+  }
+  if (str.includes("ClientNeedsUpgradeError") || str.includes("out of date")) {
+    return "Meta blocked direct password login ('App out of date'). Connect via 'Session ID' above to bypass!";
+  }
+  if (str.includes("challenge_required") || str.includes("checkpoint")) {
+    return "Instagram Security Checkpoint: Open Instagram app on your phone to approve or use Session ID.";
+  }
+  if (str.includes("Missing code verifier") || str.includes("invalid_grant")) {
+    return "YouTube OAuth token expired. Please click 'Connect YouTube Channel' in the settings box above.";
+  }
+  if (str.includes("quotaExceeded")) {
+    return "YouTube daily upload quota limit reached. Resets in 24 hours.";
+  }
+  return str.length > 120 ? str.slice(0, 117) + "..." : str;
+}
+
+function escapeHtml(text) {
+  if (!text) return "";
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatCountdown(sec) {
+  if (!sec || sec <= 0) return "0s";
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}m ${s < 10 ? '0' : ''}${s}s`;
+}
+
+// 1-Click Direct Retry / Upload
+async function directRetryUpload(filename, platform, btn) {
+  let origHtml = "";
+  if (btn) {
+    origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="animate-spin inline-block text-[10px]">⌛</span> Uploading...`;
+  }
+  try {
+    const res = await fetch("/api/social/upload-single", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename, platform })
+    });
+    const data = await res.json();
+    if (data.success) {
+      alert(`🎉 Successfully uploaded ${filename} to ${platform.toUpperCase()}!`);
+    } else {
+      const err = data.results?.[platform]?.error || "Upload failed. Please check your social account session.";
+      alert(`❌ ${platform.toUpperCase()} Upload Failed:\n\n${cleanUploadError(err)}`);
+    }
+  } catch (e) {
+    alert(`Error: ${e.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+    fetchClipsList();
+    fetchSchedulerStatus();
+  }
+}
+
 // Poll Job Status with high-frequency updates (600ms)
-function pollJobStatus(jobId) {
+function pollJobStatus(jobId, jobCreatedAt) {
   clearInterval(pollTimer);
-  const startEpoch = Date.now();
+  const startEpoch = jobCreatedAt ? (jobCreatedAt * 1000) : Date.now();
+
+  const progressBox = document.getElementById("progress-box");
+  if (progressBox) progressBox.classList.remove("hidden");
 
   pollTimer = setInterval(async () => {
     try {
       const res = await fetch(`/api/job-status/${jobId}`);
+      if (!res.ok) return;
       const job = await res.json();
 
       const pct = job.progress || 0;
-      document.getElementById("progress-pct").textContent = `${Math.round(pct)}% (TURBO)`;
-      document.getElementById("progress-bar-fill").style.width = `${pct}%`;
+      const pctEl = document.getElementById("progress-pct");
+      const barEl = document.getElementById("progress-bar-fill");
+      const partEl = document.getElementById("progress-part-status");
+      const elapsedEl = document.getElementById("progress-elapsed");
 
-      if (job.total_parts) {
-        document.getElementById("progress-part-status").textContent = `⚡ Parallel Multi-Core Rendering: ${job.clips ? job.clips.length : 0} of ${job.total_parts} finished`;
+      if (pctEl) pctEl.textContent = `${Math.round(pct)}% (TURBO)`;
+      if (barEl) barEl.style.width = `${pct}%`;
+
+      if (job.total_parts && partEl) {
+        partEl.textContent = `⚡ Parallel Multi-Core Rendering: ${job.clips ? job.clips.length : 0} of ${job.total_parts} finished`;
       }
 
-      const elapsedSec = Math.round((Date.now() - startEpoch) / 1000);
-      document.getElementById("progress-elapsed").textContent = `Elapsed: ${elapsedSec}s`;
+      const elapsedSec = Math.max(0, Math.round((Date.now() - startEpoch) / 1000));
+      if (elapsedEl) elapsedEl.textContent = `Elapsed: ${elapsedSec}s`;
 
       // Live update gallery as clips finish
       if (job.clips && job.clips.length > 0) {
@@ -333,12 +450,14 @@ function pollJobStatus(jobId) {
 
       if (job.status === "completed") {
         clearInterval(pollTimer);
-        document.getElementById("progress-pct").textContent = `100% Done in ${job.elapsed_sec || elapsedSec}s!`;
-        document.getElementById("progress-part-status").textContent = `⚡ All ${job.clips.length} clips generated at turbo speed!`;
+        if (pctEl) pctEl.textContent = `100% Done in ${job.elapsed_sec || elapsedSec}s!`;
+        if (partEl) partEl.textContent = `⚡ All ${job.clips.length} clips generated at turbo speed!`;
 
         const btn = document.getElementById("btn-start-process");
-        btn.disabled = false;
-        btn.classList.remove("opacity-50", "cursor-not-allowed");
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove("opacity-50", "cursor-not-allowed");
+        }
 
         fetchClipsList();
         fetchSchedulerStatus();
@@ -346,8 +465,10 @@ function pollJobStatus(jobId) {
         clearInterval(pollTimer);
         alert("Processing error: " + (job.error || "Unknown error"));
         const btn = document.getElementById("btn-start-process");
-        btn.disabled = false;
-        btn.classList.remove("opacity-50", "cursor-not-allowed");
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove("opacity-50", "cursor-not-allowed");
+        }
       }
     } catch (e) {
       console.error("Poll error:", e);
@@ -376,7 +497,7 @@ async function fetchSchedulerStatus() {
     listEl.innerHTML = data.items.map(item => {
       let statusBadge = "";
       if (item.status === "published") {
-        statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">PUBLISHED at ${item.published_at}</span>`;
+        statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">RELEASED at ${item.published_at}</span>`;
       } else if (item.status === "publishing") {
         statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse">RELEASING...</span>`;
       } else {
@@ -386,17 +507,60 @@ async function fetchSchedulerStatus() {
         statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">In ${timeStr} (${item.scheduled_str})</span>`;
       }
 
+      // Check per-platform upload badges
+      const yt = item.uploads?.youtube;
+      const ig = item.uploads?.instagram;
+
       return `
-        <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
-          <div class="flex items-center gap-2">
-            <span class="w-6 h-6 rounded-lg bg-amber-500 text-black font-black flex items-center justify-center text-[10px]">P${item.part}</span>
+        <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5 text-xs">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-6 h-6 rounded-lg bg-amber-500 text-black font-black flex items-center justify-center text-[10px]">P${item.part}</span>
+              <div>
+                <p class="font-bold text-slate-200">Part ${item.part} • Episode ${item.episode}</p>
+                <p class="text-[10px] text-slate-500 font-mono">${item.filename || ''}</p>
+              </div>
+            </div>
             <div>
-              <p class="font-bold text-slate-200">Part ${item.part} • Episode ${item.episode}</p>
-              <p class="text-[10px] text-slate-500 font-mono">${item.filename || ''}</p>
+              ${statusBadge}
             </div>
           </div>
-          <div>
-            ${statusBadge}
+
+          <!-- Platform upload status pills inside queue item -->
+          <div class="flex items-center gap-2 pt-1 border-t border-slate-800/80 text-[10px]">
+            <!-- YouTube Pill -->
+            <div class="flex items-center gap-1">
+              ${yt?.status === 'success' ? `
+                <a href="${yt.url}" target="_blank" class="px-1.5 py-0.5 rounded bg-red-600/20 text-red-400 border border-red-500/30 font-bold hover:bg-red-600/30">
+                  YT Live ↗
+                </a>
+              ` : (yt?.status === 'error' ? `
+                <span class="px-1.5 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-500/30 font-bold" title="${escapeHtml(cleanUploadError(yt.error))}">
+                  YT ❌ Failed
+                </span>
+              ` : `
+                <span class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-400">
+                  YT Ready
+                </span>
+              `)}
+            </div>
+
+            <!-- Instagram Pill -->
+            <div class="flex items-center gap-1">
+              ${ig?.status === 'success' ? `
+                <a href="${ig.url}" target="_blank" class="px-1.5 py-0.5 rounded bg-pink-600/20 text-pink-400 border border-pink-500/30 font-bold hover:bg-pink-600/30">
+                  Insta Live ↗
+                </a>
+              ` : (ig?.status === 'error' ? `
+                <span class="px-1.5 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-500/30 font-bold" title="${escapeHtml(cleanUploadError(ig.error))}">
+                  Insta ❌ Failed
+                </span>
+              ` : `
+                <span class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-400">
+                  Insta Ready
+                </span>
+              `)}
+            </div>
           </div>
         </div>
       `;
@@ -425,12 +589,18 @@ async function fetchClipsList() {
       return;
     }
 
-    grid.innerHTML = clips.map(clip => `
+    grid.innerHTML = clips.map(clip => {
+      const yt = clip.uploads?.youtube;
+      const ig = clip.uploads?.instagram;
+      const isScheduled = clip.scheduler && clip.scheduler.status === "scheduled";
+
+      return `
       <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-amber-500/40 transition group shadow-lg">
         <div class="flex items-center justify-between mb-2">
           <span class="text-xs font-extrabold text-amber-400 truncate max-w-[150px]">${clip.display_title || clip.filename}</span>
           <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 font-mono">${clip.size_mb} MB</span>
         </div>
+        
         <div class="aspect-[9/16] bg-slate-900 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer mb-2.5" onclick="openVideoModal('${clip.url}', '${clip.display_title || clip.filename}')">
           <video src="${clip.url}" ${clip.thumbnail_url ? `poster="${clip.thumbnail_url}"` : ''} preload="metadata" class="w-full h-full object-cover"></video>
           <div class="absolute inset-0 bg-black/35 group-hover:bg-black/15 flex items-center justify-center transition">
@@ -446,7 +616,98 @@ async function fetchClipsList() {
             <span>📸 Reel Cover</span>
           </div>` : ''}
         </div>
-        <div class="space-y-1.5 mt-2">
+
+        <!-- Per-Platform Social Upload Status Section -->
+        <div class="p-2 bg-slate-900/90 rounded-lg border border-slate-800 space-y-2 mb-2">
+          <!-- YouTube Row -->
+          <div class="flex items-center justify-between text-xs">
+            <span class="flex items-center gap-1 text-[11px] font-bold text-slate-300">
+              <i data-lucide="youtube" class="w-3.5 h-3.5 text-red-500"></i> YouTube
+            </span>
+            <div>
+              ${yt?.status === 'success' ? `
+                <a href="${yt.url}" target="_blank" class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-600/20 text-red-400 border border-red-500/30 hover:bg-red-600/30 flex items-center gap-1">
+                  Live ↗
+                </a>
+              ` : (yt?.status === 'error' ? `
+                <div class="flex items-center gap-1">
+                  <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-950/60 text-rose-300 border border-rose-500/30" title="${escapeHtml(cleanUploadError(yt.error))}">
+                    Failed
+                  </span>
+                  <button onclick="directRetryUpload('${clip.filename}', 'youtube', this)" class="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-red-600 hover:bg-red-500 text-white transition">
+                    Retry
+                  </button>
+                </div>
+              ` : (isScheduled ? `
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-amber-300 border border-slate-700">
+                  In ${formatCountdown(clip.scheduler.seconds_remaining)}
+                </span>
+              ` : `
+                <button onclick="directRetryUpload('${clip.filename}', 'youtube', this)" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 hover:bg-red-600 hover:text-white text-slate-300 border border-slate-700 transition">
+                  Upload
+                </button>
+              `))}
+            </div>
+          </div>
+
+          <!-- Instagram Row -->
+          <div class="flex items-center justify-between text-xs">
+            <span class="flex items-center gap-1 text-[11px] font-bold text-slate-300">
+              <i data-lucide="instagram" class="w-3.5 h-3.5 text-pink-400"></i> Instagram
+            </span>
+            <div>
+              ${ig?.status === 'success' ? `
+                <a href="${ig.url}" target="_blank" class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-600/20 text-pink-400 border border-pink-500/30 hover:bg-pink-600/30 flex items-center gap-1">
+                  Live ↗
+                </a>
+              ` : (ig?.status === 'error' ? `
+                <div class="flex items-center gap-1">
+                  <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-950/60 text-rose-300 border border-rose-500/30" title="${escapeHtml(cleanUploadError(ig.error))}">
+                    Failed
+                  </span>
+                  <button onclick="directRetryUpload('${clip.filename}', 'instagram', this)" class="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-gradient-to-r from-pink-600 to-purple-600 hover:opacity-90 text-white transition">
+                    Retry
+                  </button>
+                </div>
+              ` : (isScheduled ? `
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-amber-300 border border-slate-700">
+                  In ${formatCountdown(clip.scheduler.seconds_remaining)}
+                </span>
+              ` : `
+                <button onclick="directRetryUpload('${clip.filename}', 'instagram', this)" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 hover:bg-pink-600 hover:text-white text-slate-300 border border-slate-700 transition">
+                  Upload
+                </button>
+              `))}
+            </div>
+          </div>
+
+          <!-- Failure Alert Details -->
+          ${ig?.status === 'error' ? `
+            <div class="p-1.5 rounded bg-rose-950/40 border border-rose-500/30 text-[10px] text-rose-300 space-y-0.5">
+              <div class="font-bold flex items-center justify-between">
+                <span>❌ Instagram Error</span>
+                <span class="text-[9px] text-slate-400 font-normal">${ig.timestamp ? ig.timestamp.split(' ')[1] + ' ' + ig.timestamp.split(' ')[2] : ''}</span>
+              </div>
+              <div class="text-[9px] text-rose-200/90 leading-tight">
+                ${escapeHtml(cleanUploadError(ig.error))}
+              </div>
+            </div>
+          ` : ''}
+
+          ${yt?.status === 'error' ? `
+            <div class="p-1.5 rounded bg-red-950/40 border border-red-500/30 text-[10px] text-red-300 space-y-0.5">
+              <div class="font-bold flex items-center justify-between">
+                <span>❌ YouTube Error</span>
+                <span class="text-[9px] text-slate-400 font-normal">${yt.timestamp ? yt.timestamp.split(' ')[1] + ' ' + yt.timestamp.split(' ')[2] : ''}</span>
+              </div>
+              <div class="text-[9px] text-red-200/90 leading-tight">
+                ${escapeHtml(cleanUploadError(yt.error))}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="space-y-1.5 mt-1">
           <!-- Row 1: Play, Cover, Video Download -->
           <div class="flex gap-1.5">
             <button onclick="openVideoModal('${clip.url}', '${clip.display_title || clip.filename}')" class="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1">
@@ -466,7 +727,7 @@ async function fetchClipsList() {
           <div class="flex gap-1.5">
             <button onclick="openSocialModal('${clip.filename}')" class="flex-1 py-1.5 bg-gradient-to-r from-pink-600 via-purple-600 to-red-600 hover:from-pink-500 hover:to-red-500 text-white rounded-lg text-xs font-extrabold transition flex items-center justify-center gap-1 shadow">
               <i data-lucide="share-2" class="w-3 h-3"></i>
-              Upload / Post
+              Custom Post
             </button>
             <button onclick="copyClipMetadata('${clip.filename}')" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 rounded-lg text-xs font-bold transition flex items-center justify-center" title="Copy Caption & Viral Tags">
               <i data-lucide="copy" class="w-3 h-3"></i>
@@ -474,7 +735,7 @@ async function fetchClipsList() {
           </div>
         </div>
       </div>
-    `).join("");
+    `}).join("");
 
     if (window.lucide) lucide.createIcons();
   } catch (e) {

@@ -33,6 +33,7 @@ from app.processor import (
     get_video_info,
     extract_sample_frame,
     start_processing_job,
+    get_current_active_job,
     start_folder_watcher,
     parse_episode_number,
     resolve_video_path,
@@ -270,6 +271,13 @@ async def get_job_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+@app.get("/api/active-job")
+async def get_active_job_endpoint():
+    job = get_current_active_job()
+    if job:
+        return {"has_active": True, "job": job}
+    return {"has_active": False, "job": None}
 
 @app.post("/api/schedule")
 async def schedule_clips_endpoint(req: ScheduleRequest):
@@ -515,7 +523,24 @@ def natural_clip_sort_key(path: Path):
 @app.get("/api/clips")
 async def list_clips():
     import re
+    from app.uploader import get_upload_history
+    history = get_upload_history()
+
+    # Build lookup for upload history: filename -> { "youtube": ..., "instagram": ... }
+    upload_map = {}
+    for entry in reversed(history):
+        fn = entry.get("filename")
+        plat = entry.get("platform", "").lower()
+        if fn and plat:
+            if fn not in upload_map:
+                upload_map[fn] = {}
+            upload_map[fn][plat] = entry
+
+    # Build queue lookup: filename -> queue_item
+    queue_map = {item.get("filename"): item for item in scheduler_instance.queue}
+
     clips = []
+    curr_time = time.time()
     # Natural sort by episode and part number
     for file in sorted(CLIPS_DIR.glob("*.mp4"), key=natural_clip_sort_key):
         if file.name.startswith(".tmp_"):
@@ -534,6 +559,15 @@ async def list_clips():
         else:
             thumb_url = None
 
+        q_item = queue_map.get(file.name)
+        sched_info = None
+        if q_item:
+            sched_info = {
+                "status": q_item.get("status"),
+                "scheduled_str": q_item.get("scheduled_str"),
+                "seconds_remaining": max(0, int(q_item.get("scheduled_timestamp", curr_time) - curr_time)) if q_item.get("status") == "scheduled" else 0
+            }
+
         clips.append({
             "filename": file.name,
             "display_title": f"Episode {ep_no} • Part {part_no}",
@@ -542,7 +576,12 @@ async def list_clips():
             "url": f"/clips_media/{file.name}",
             "thumbnail_url": thumb_url,
             "size_mb": round(file.stat().st_size / (1024 * 1024), 2),
-            "created_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(file.stat().st_ctime))
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(file.stat().st_ctime)),
+            "uploads": {
+                "youtube": upload_map.get(file.name, {}).get("youtube"),
+                "instagram": upload_map.get(file.name, {}).get("instagram")
+            },
+            "scheduler": sched_info
         })
     return clips
 

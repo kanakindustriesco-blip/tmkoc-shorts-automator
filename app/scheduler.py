@@ -81,10 +81,31 @@ class ClipScheduler:
                     item["details"] = {"error": str(e)}
 
     def get_queue_status(self) -> Dict[str, Any]:
+        from app.uploader import get_upload_history
         current_time = time.time()
+        history = get_upload_history()
+
+        # Build lookup for upload history: filename -> { "youtube": ..., "instagram": ... }
+        upload_map = {}
+        for entry in reversed(history):
+            fn = entry.get("filename")
+            plat = entry.get("platform", "").lower()
+            if fn and plat:
+                if fn not in upload_map:
+                    upload_map[fn] = {}
+                upload_map[fn][plat] = entry
+
         enriched_queue = []
         for item in self.queue:
             copy_item = dict(item)
+            fn = copy_item.get("filename")
+
+            # Enrich with upload details
+            copy_item["uploads"] = {
+                "youtube": upload_map.get(fn, {}).get("youtube"),
+                "instagram": upload_map.get(fn, {}).get("instagram")
+            }
+
             if copy_item["status"] == "scheduled":
                 diff = int(copy_item["scheduled_timestamp"] - current_time)
                 copy_item["seconds_remaining"] = max(0, diff)

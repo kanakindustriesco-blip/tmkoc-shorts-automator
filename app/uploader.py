@@ -177,13 +177,71 @@ def configure_instagram(
     cl = Client()
     cl.delay_range = [1, 3]
 
-    # Mode 1: Connect via Instagram Session ID (Fastest, zero blocks, bypasses 2FA/app version issues)
+    # Mode 1: Connect via Instagram Session ID / Cookies
     if session_id and session_id.strip():
-        sid = session_id.strip()
+        import urllib.parse
+        import re
+        raw_input = session_id.strip()
+        cookie_dict = {}
+        if ';' in raw_input or '=' in raw_input:
+            for part in raw_input.split(';'):
+                if '=' in part:
+                    k, v = part.strip().split('=', 1)
+                    cookie_dict[k.strip()] = urllib.parse.unquote(v.strip())
+
+        sid = cookie_dict.get('sessionid') or raw_input
+        sid = urllib.parse.unquote(sid)
+        if sid.startswith('sessionid='):
+            sid = sid[len('sessionid='):].strip()
+
+        user_match = re.search(r'^\d+', sid)
+        if not user_match:
+            return {
+                "success": False,
+                "error": "Invalid Session ID format. It should start with your numeric user ID (e.g. 51692006402:...)."
+            }
+
+        user_id = user_match.group()
+        cookie_dict['sessionid'] = sid
+        if 'ds_user_id' not in cookie_dict:
+            cookie_dict['ds_user_id'] = user_id
+
         try:
             cl.login_by_sessionid(sid)
+            for k, v in cookie_dict.items():
+                cl.private.cookies.set(k, v, domain=".instagram.com")
+
+            # CRITICAL VERIFICATION: Ensure the private session is genuinely active
+            verified = False
+            try:
+                cl.get_timeline_feed()
+                verified = True
+            except Exception as e_feed:
+                print(f"[Instagram Verification] get_timeline_feed check: {e_feed}")
+                try:
+                    info = cl.user_info_v1(int(user_id))
+                    if info:
+                        verified = True
+                except Exception as e_info:
+                    print(f"[Instagram Verification] user_info_v1 check: {e_info}")
+
+            if not verified:
+                # Invalidate failed session file
+                if IG_SESSION_PATH.exists():
+                    os.remove(IG_SESSION_PATH)
+                settings["instagram"]["is_connected"] = False
+                save_social_settings(settings)
+                return {
+                    "success": False,
+                    "error": (
+                        "Instagram Session ID is expired or invalid (login_required). "
+                        "Make sure you are logged into instagram.com in Chrome, "
+                        "copy the latest sessionid value, and DO NOT click 'Log Out' on Instagram!"
+                    )
+                }
+
             cl.dump_settings(str(IG_SESSION_PATH))
-            detected_user = cl.username or username or "instagram_user"
+            detected_user = cl.username or username or "tmkoc.925781"
             settings["instagram"]["username"] = detected_user
             settings["instagram"]["is_connected"] = True
             settings["instagram"]["last_login"] = time.strftime("%Y-%m-%d %I:%M:%S %p")
@@ -194,7 +252,7 @@ def configure_instagram(
                 "username": detected_user
             }
         except Exception as e:
-            return {"success": False, "error": f"Session ID invalid or expired: {str(e)}"}
+            return {"success": False, "error": f"Session verification failed: {str(e)}"}
 
     # Mode 2: Username & Password
     if not username:
@@ -293,6 +351,15 @@ def publish_to_instagram(clip_path: str, caption: str, thumb_path: Optional[str]
         }
     except Exception as e:
         err_msg = str(e)
+        if "login_required" in err_msg.lower():
+            if IG_SESSION_PATH.exists():
+                try:
+                    os.remove(IG_SESSION_PATH)
+                except Exception:
+                    pass
+            settings["instagram"]["is_connected"] = False
+            save_social_settings(settings)
+            err_msg = "Instagram session expired (HTTP 403 login_required). Please re-connect with a fresh Session ID in Settings."
         record_upload("Instagram", src.name, "error", error=err_msg)
         return {"success": False, "error": f"Instagram upload error: {err_msg}"}
 

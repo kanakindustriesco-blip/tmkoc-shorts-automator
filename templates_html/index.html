@@ -225,17 +225,25 @@
 
             <!-- Instagram Disconnected: Session ID Setup -->
             <div id="ig-disconnected-box" class="space-y-2">
-              <div class="p-2.5 bg-pink-500/10 border border-pink-500/20 rounded-lg text-xs space-y-1">
-                <p class="font-bold text-pink-300">Instagram 1-Time Session ID Connect</p>
-                <p class="text-[10px] text-slate-400 leading-relaxed">
-                  Meta security direct password login block karta hai. Chrome me <b class="text-slate-300">instagram.com</b> khol kar <b>F12 &rarr; Application &rarr; Cookies &rarr; sessionid</b> copy karein.
+              <div class="p-2.5 bg-pink-500/10 border border-pink-500/20 rounded-lg text-xs space-y-1.5">
+                <p class="font-bold text-pink-300 flex items-center justify-between">
+                  <span>📸 Instagram Session ID Connect</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400 font-mono">10 Seconds</span>
                 </p>
+                <div class="text-[10px] text-slate-300 space-y-1 leading-relaxed">
+                  <p>1. Chrome me <a href="https://www.instagram.com" target="_blank" class="underline text-pink-400 font-bold">instagram.com</a> kholein aur login karein.</p>
+                  <p>2. Keyboard par <b>F12</b> dabayein &rarr; <b>Application</b> tab &rarr; Left me <b>Cookies</b> &rarr; <b>https://www.instagram.com</b> par click karein.</p>
+                  <p>3. <b>sessionid</b> cookie ki value copy karke neeche paste karein.</p>
+                  <p class="text-amber-400 font-bold bg-amber-500/10 p-1 rounded border border-amber-500/20">
+                    ⚠️ Dhyan rahe: Copy karne ke baad browser me Instagram ko "Log Out" mat karein, warna token expire ho jayega!
+                  </p>
+                </div>
               </div>
               <div class="flex gap-1.5">
-                <input id="ig-session-id" type="password" placeholder="Paste sessionid here..."
-                  class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-pink-500" />
+                <input id="ig-session-id" type="text" placeholder="Paste sessionid yahan karein (e.g. 516920...)"
+                  class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-pink-500 font-mono text-[11px]" />
                 <button onclick="handleInstagramSessionConnect()" id="btn-ig-connect"
-                  class="px-3 py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold rounded-lg text-xs transition shadow flex items-center gap-1">
+                  class="px-4 py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold rounded-lg text-xs transition shadow flex items-center gap-1">
                   Connect
                 </button>
               </div>

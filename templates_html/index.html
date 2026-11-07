@@ -393,6 +393,56 @@
           </div>
         </div>
 
+        <!-- Anti-Copyright Shield Card -->
+        <div class="bg-gradient-to-r from-emerald-950/60 to-slate-950 border border-emerald-500/30 rounded-xl p-3.5 space-y-3 shadow-lg">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-black">
+                🛡️
+              </span>
+              <div>
+                <h4 class="text-xs font-black text-emerald-300">Anti-Copyright Auto Shield</h4>
+                <p class="text-[10px] text-slate-400">Title song auto-skip, audio fingerprint bypass & corner watermark blur</p>
+              </div>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input id="toggle-anti-copyright" type="checkbox" checked class="sr-only peer">
+              <div class="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+            </label>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1">
+            <!-- Skip Intro (Title song) -->
+            <div>
+              <label class="block text-[10px] font-bold text-slate-300 mb-1">Skip Intro (Title Song)</label>
+              <div class="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+                <input id="input-skip-intro" type="number" value="75" min="0" max="300" class="w-12 bg-transparent focus:outline-none font-bold text-emerald-400" />
+                <span class="text-[10px] text-slate-400">sec</span>
+              </div>
+            </div>
+
+            <!-- Skip Outro (Credits/Recap) -->
+            <div>
+              <label class="block text-[10px] font-bold text-slate-300 mb-1">Skip Outro (Credits)</label>
+              <div class="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+                <input id="input-skip-outro" type="number" value="45" min="0" max="300" class="w-12 bg-transparent focus:outline-none font-bold text-emerald-400" />
+                <span class="text-[10px] text-slate-400">sec</span>
+              </div>
+            </div>
+
+            <!-- Logo / Watermark Blur -->
+            <div>
+              <label class="block text-[10px] font-bold text-slate-300 mb-1">Logo / Watermark Blur</label>
+              <select id="select-logo-removal" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-[11px] font-bold text-emerald-300 focus:outline-none">
+                <option value="top-left" selected>Sony SAB (Top-Left)</option>
+                <option value="top-right">Sony LIV (Top-Right)</option>
+                <option value="both">Both Corners</option>
+                <option value="none">Disabled</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <!-- Manual Start Button (if loaded via path) -->
         <button id="btn-start-process" onclick="startGeneration()" 
           class="w-full py-3.5 px-6 rounded-xl font-extrabold text-sm bg-gradient-to-r from-amber-400 via-orange-500 to-red-500 hover:from-amber-300 hover:to-red-400 text-black shadow-lg shadow-orange-500/20 transition transform active:scale-[0.99] flex items-center justify-center gap-2">
@@ -602,6 +652,6 @@
     <span id="toast-message">Caption Copied!</span>
   </div>
 
-  <script src="/static/js/app.js?v=2.3"></script>
+  <script src="/static/js/app.js?v=2.4"></script>
 </body>
 </html>

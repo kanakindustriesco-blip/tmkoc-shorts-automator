@@ -5,7 +5,7 @@ import zipfile
 import subprocess
 from pathlib import Path
 from typing import Optional, List
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -102,6 +102,10 @@ class ProcessRequest(BaseModel):
     max_parts: Optional[int] = None
     use_blurred_bg: bool = True
     auto_schedule: bool = True
+    anti_copyright: bool = True
+    skip_intro_seconds: int = 75
+    skip_outro_seconds: int = 45
+    logo_removal: str = "top-left"
 
 class ScheduleRequest(BaseModel):
     episode_num: str
@@ -173,9 +177,15 @@ async def select_local_video(req: LocalFileRequest):
     }
 
 @app.post("/api/upload-raw")
-async def upload_raw_video(file: UploadFile = File(...)):
+async def upload_raw_video(
+    file: UploadFile = File(...),
+    anti_copyright: bool = Form(True),
+    skip_intro_seconds: int = Form(75),
+    skip_outro_seconds: int = Form(45),
+    logo_removal: str = Form("top-left")
+):
     """
-    Dedicated Raw Video Drop: Saves file and immediately triggers the full automated pipeline!
+    Dedicated Raw Video Drop: Saves file and immediately triggers the full automated pipeline with Anti-Copyright Shield!
     """
     PROCESSED_WATCHER_FILES.add(file.filename)
     dest = PROCESSED_RAW_DIR / file.filename
@@ -192,12 +202,16 @@ async def upload_raw_video(file: UploadFile = File(...)):
         clip_duration=DEFAULT_CLIP_DURATION,
         start_part=1,
         use_blurred_bg=True,
-        auto_schedule=True
+        auto_schedule=True,
+        anti_copyright=anti_copyright,
+        skip_intro_seconds=skip_intro_seconds,
+        skip_outro_seconds=skip_outro_seconds,
+        logo_removal=logo_removal
     )
 
     return {
         "success": True,
-        "message": f"Raw episode uploaded! Processing Episode #{ep_num} started automatically.",
+        "message": f"Raw episode uploaded! Processing Episode #{ep_num} started automatically with Anti-Copyright Shield.",
         "job_id": job_id,
         "episode_num": ep_num,
         "filename": file.filename,
@@ -238,7 +252,11 @@ async def start_process(req: ProcessRequest):
         start_part=req.start_part,
         max_parts=req.max_parts,
         use_blurred_bg=req.use_blurred_bg,
-        auto_schedule=req.auto_schedule
+        auto_schedule=req.auto_schedule,
+        anti_copyright=req.anti_copyright,
+        skip_intro_seconds=req.skip_intro_seconds,
+        skip_outro_seconds=req.skip_outro_seconds,
+        logo_removal=req.logo_removal
     )
 
     return {

@@ -99,24 +99,51 @@ def extract_sample_frame(video_path: str, timestamp: float = 15.0, output_path: 
         print(f"[extract frame error] {e}")
         return None
 
-def build_ffmpeg_filter(use_blurred_bg: bool = True) -> str:
+def build_ffmpeg_filter(
+    use_blurred_bg: bool = True,
+    anti_copyright: bool = True,
+    logo_removal: str = "top-left"
+) -> str:
     """
     Turbo-charged filter complex:
-    Ultra-light background blur (90x160 bilinear) or black padding,
-    video centered between y=623 and 1241.
+    - Ultra-light background blur (90x160 bilinear) or black padding, video centered between y=623 and 1241.
+    - Anti-Copyright Shield: 1.02x scale/crop to break pixel grid matching, contrast/saturation shift,
+      and corner delogo to obscure broadcaster watermarks (Sony SAB / Sony LIV).
     """
+    delogo_filters = []
+    if logo_removal in ("top-left", "both"):
+        delogo_filters.append("delogo=x=18:y=12:w=115:h=55")
+    if logo_removal in ("top-right", "both"):
+        delogo_filters.append("delogo=x=945:y=12:w=115:h=55")
+    
+    delogo_str = (",".join(delogo_filters) + ",") if delogo_filters else ""
+
+    if anti_copyright:
+        fg_pipeline = (
+            f"scale=1102:630:force_original_aspect_ratio=decrease,"
+            f"crop={TARGET_WIDTH}:{VIDEO_WINDOW_HEIGHT},"
+            f"{delogo_str}"
+            f"eq=contrast=1.03:saturation=1.04:brightness=0.01[fg];"
+        )
+    else:
+        if delogo_str:
+            d_clean = delogo_str.rstrip(",")
+            fg_pipeline = f"scale={TARGET_WIDTH}:{VIDEO_WINDOW_HEIGHT}:force_original_aspect_ratio=decrease,{d_clean}[fg];"
+        else:
+            fg_pipeline = f"scale={TARGET_WIDTH}:{VIDEO_WINDOW_HEIGHT}:force_original_aspect_ratio=decrease[fg];"
+
     if use_blurred_bg:
         filter_str = (
-            f"[0:v]split=2[v_bg][v_fg];"
+            f"[0:v]split=2[v_bg][v_src];"
             f"[v_bg]scale=90:160:force_original_aspect_ratio=increase,crop=90:160,boxblur=3:1,scale={TARGET_WIDTH}:{TARGET_HEIGHT}:flags=bilinear[blurred];"
-            f"[v_fg]scale={TARGET_WIDTH}:{VIDEO_WINDOW_HEIGHT}:force_original_aspect_ratio=decrease[fg];"
+            f"[v_src]{fg_pipeline}"
             f"[blurred][fg]overlay=(W-w)/2:{VIDEO_WINDOW_Y_START}[composed];"
             f"[composed][1:v]overlay=0:0[outv]"
         )
     else:
         filter_str = (
-            f"[0:v]scale={TARGET_WIDTH}:{VIDEO_WINDOW_HEIGHT}:force_original_aspect_ratio=decrease,"
-            f"pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:{VIDEO_WINDOW_Y_START}:color=black[padded];"
+            f"[0:v]{fg_pipeline}"
+            f"[fg]pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:{VIDEO_WINDOW_Y_START}:color=black[padded];"
             f"[padded][1:v]overlay=0:0[outv]"
         )
     return filter_str
@@ -127,13 +154,19 @@ def render_single_clip(
     start_time: float,
     duration: float,
     output_path: str,
-    use_blurred_bg: bool = True
+    use_blurred_bg: bool = True,
+    anti_copyright: bool = True,
+    logo_removal: str = "top-left"
 ) -> bool:
     """
-    Turbo render with ultrafast x264 preset and multi-threading.
+    Turbo render with ultrafast x264 preset, multi-threading, and Anti-Copyright Audio/Video Shield.
     """
     video_path = resolve_video_path(video_path)
-    filter_complex = build_ffmpeg_filter(use_blurred_bg=use_blurred_bg)
+    filter_complex = build_ffmpeg_filter(
+        use_blurred_bg=use_blurred_bg,
+        anti_copyright=anti_copyright,
+        logo_removal=logo_removal
+    )
 
     cmd = [
         "ffmpeg",
@@ -145,19 +178,35 @@ def render_single_clip(
         "-t", f"{duration:.2f}",
         "-i", overlay_path,
         "-filter_complex", filter_complex,
-        "-map", "[outv]",
-        "-map", "0:a?",
+        "-map", "[outv]"
+    ]
+
+    if anti_copyright:
+        # Alter audio acoustic fingerprint without altering duration or tempo (+2.5% pitch shift + EQ)
+        audio_filter = "asetrate=48000*1.025,aresample=48000,atempo=1/1.025,equalizer=f=1200:width_type=h:width=250:g=1.2"
+        cmd.extend([
+            "-map", "0:a?",
+            "-filter:a", audio_filter,
+            "-c:a", "aac",
+            "-b:a", "128k"
+        ])
+    else:
+        cmd.extend([
+            "-map", "0:a?",
+            "-c:a", "aac",
+            "-b:a", "128k"
+        ])
+
+    cmd.extend([
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-crf", "23",
         "-tune", "fastdecode",
-        "-c:a", "aac",
-        "-b:a", "128k",
         "-threads", "0",
         "-shortest",
         "-movflags", "+faststart",
         output_path
-    ]
+    ])
 
     try:
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
@@ -187,6 +236,8 @@ def _render_part_task(task_data: dict) -> Optional[dict]:
     clip_name = task_data["clip_name"]
     part_num = task_data["part_num"]
     use_blurred_bg = task_data["use_blurred_bg"]
+    anti_copyright = task_data.get("anti_copyright", True)
+    logo_removal = task_data.get("logo_removal", "top-left")
 
     success = render_single_clip(
         video_path=video_path,
@@ -194,7 +245,9 @@ def _render_part_task(task_data: dict) -> Optional[dict]:
         start_time=start_time,
         duration=duration,
         output_path=output_path,
-        use_blurred_bg=use_blurred_bg
+        use_blurred_bg=use_blurred_bg,
+        anti_copyright=anti_copyright,
+        logo_removal=logo_removal
     )
 
     # Cleanup temporary overlay
@@ -248,10 +301,15 @@ def process_episode_into_shorts(
     start_part: int = 1,
     max_parts: Optional[int] = None,
     use_blurred_bg: bool = True,
-    auto_schedule: bool = True
+    auto_schedule: bool = True,
+    anti_copyright: bool = True,
+    skip_intro_seconds: int = 75,
+    skip_outro_seconds: int = 45,
+    logo_removal: str = "top-left"
 ):
     """
-    Parallel multi-threaded worker that slices episode into 30s clips at blazing speed.
+    Parallel multi-threaded worker that slices episode into 30s clips at blazing speed,
+    with built-in Anti-Copyright Shield (skips title song, removes watermarks, alters audio fingerprint).
     """
     video_path = resolve_video_path(video_path)
     job = JOBS[job_id]
@@ -266,7 +324,17 @@ def process_episode_into_shorts(
             job["error"] = "Could not read video duration."
             return
 
-        total_possible_parts = math.ceil(total_duration / clip_duration)
+        # Anti-Copyright: Skip intro title song & outro credits if requested
+        intro_offset = max(0, skip_intro_seconds) if anti_copyright else 0
+        outro_offset = max(0, skip_outro_seconds) if anti_copyright else 0
+
+        usable_duration = total_duration - intro_offset - outro_offset
+        if usable_duration <= clip_duration:
+            usable_duration = total_duration
+            intro_offset = 0
+            outro_offset = 0
+
+        total_possible_parts = math.ceil(usable_duration / clip_duration)
         if max_parts and max_parts > 0:
             parts_to_generate = min(total_possible_parts, max_parts)
         else:
@@ -281,8 +349,8 @@ def process_episode_into_shorts(
         tasks = []
         for idx in range(parts_to_generate):
             current_part_num = start_part + idx
-            start_time_offset = idx * clip_duration
-            actual_duration = min(clip_duration, total_duration - start_time_offset)
+            start_time_offset = intro_offset + (idx * clip_duration)
+            actual_duration = min(clip_duration, (total_duration - outro_offset) - start_time_offset)
 
             if actual_duration <= 2.0:
                 continue
@@ -309,7 +377,9 @@ def process_episode_into_shorts(
                 "final_path": str(final_output_file),
                 "clip_name": clip_name,
                 "part_num": current_part_num,
-                "use_blurred_bg": use_blurred_bg
+                "use_blurred_bg": use_blurred_bg,
+                "anti_copyright": anti_copyright,
+                "logo_removal": logo_removal
             })
 
         # Execute tasks in parallel across CPU cores
@@ -365,7 +435,11 @@ def start_processing_job(
     start_part: int = 1,
     max_parts: Optional[int] = None,
     use_blurred_bg: bool = True,
-    auto_schedule: bool = True
+    auto_schedule: bool = True,
+    anti_copyright: bool = True,
+    skip_intro_seconds: int = 75,
+    skip_outro_seconds: int = 45,
+    logo_removal: str = "top-left"
 ) -> str:
     job_id = f"job_{int(time.time())}_{episode_num}"
     JOBS[job_id] = {
@@ -378,7 +452,11 @@ def start_processing_job(
         "total_parts": 0,
         "clips": [],
         "created_at": time.time(),
-        "error": None
+        "error": None,
+        "anti_copyright": anti_copyright,
+        "skip_intro_seconds": skip_intro_seconds,
+        "skip_outro_seconds": skip_outro_seconds,
+        "logo_removal": logo_removal
     }
 
     thread = threading.Thread(
@@ -392,7 +470,11 @@ def start_processing_job(
             "start_part": start_part,
             "max_parts": max_parts,
             "use_blurred_bg": use_blurred_bg,
-            "auto_schedule": auto_schedule
+            "auto_schedule": auto_schedule,
+            "anti_copyright": anti_copyright,
+            "skip_intro_seconds": skip_intro_seconds,
+            "skip_outro_seconds": skip_outro_seconds,
+            "logo_removal": logo_removal
         },
         daemon=True
     )
@@ -437,7 +519,11 @@ def watch_folder_worker():
                         clip_duration=DEFAULT_CLIP_DURATION,
                         start_part=1,
                         use_blurred_bg=True,
-                        auto_schedule=True
+                        auto_schedule=True,
+                        anti_copyright=True,
+                        skip_intro_seconds=75,
+                        skip_outro_seconds=45,
+                        logo_removal="top-left"
                     )
 
         except Exception as e:

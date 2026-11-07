@@ -146,6 +146,16 @@ async function uploadRawFile(file) {
   const formData = new FormData();
   formData.append("file", file);
 
+  const antiCopyright = document.getElementById("toggle-anti-copyright") ? document.getElementById("toggle-anti-copyright").checked : true;
+  const skipIntro = document.getElementById("input-skip-intro") ? parseInt(document.getElementById("input-skip-intro").value) || 0 : 75;
+  const skipOutro = document.getElementById("input-skip-outro") ? parseInt(document.getElementById("input-skip-outro").value) || 0 : 45;
+  const logoRemoval = document.getElementById("select-logo-removal") ? document.getElementById("select-logo-removal").value : "top-left";
+
+  formData.append("anti_copyright", antiCopyright);
+  formData.append("skip_intro_seconds", skipIntro);
+  formData.append("skip_outro_seconds", skipOutro);
+  formData.append("logo_removal", logoRemoval);
+
   const progressBox = document.getElementById("progress-box");
   progressBox.classList.remove("hidden");
   document.getElementById("progress-pct").textContent = "Uploading Episode...";
@@ -257,6 +267,11 @@ async function startGeneration() {
   btn.disabled = true;
   btn.classList.add("opacity-50", "cursor-not-allowed");
 
+  const antiCopyright = document.getElementById("toggle-anti-copyright") ? document.getElementById("toggle-anti-copyright").checked : true;
+  const skipIntro = document.getElementById("input-skip-intro") ? parseInt(document.getElementById("input-skip-intro").value) || 0 : 75;
+  const skipOutro = document.getElementById("input-skip-outro") ? parseInt(document.getElementById("input-skip-outro").value) || 0 : 45;
+  const logoRemoval = document.getElementById("select-logo-removal") ? document.getElementById("select-logo-removal").value : "top-left";
+
   const progressBox = document.getElementById("progress-box");
   progressBox.classList.remove("hidden");
 
@@ -271,7 +286,11 @@ async function startGeneration() {
         start_part: startPart,
         max_parts: maxParts,
         use_blurred_bg: true,
-        auto_schedule: true
+        auto_schedule: true,
+        anti_copyright: antiCopyright,
+        skip_intro_seconds: skipIntro,
+        skip_outro_seconds: skipOutro,
+        logo_removal: logoRemoval
       })
     });
     const data = await res.json();
